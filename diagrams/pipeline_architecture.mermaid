@@ -1,69 +1,69 @@
 %%{init: {'theme': 'dark'}}%%
 flowchart TD
- %% SOURCES 
- subgraph SOURCES["SOURCES"]
- K["Kafka\nClick / Impression / Conversion events"]
- S["S3 / ADLS\nJSON landing zone"]
- P["Partner Feeds\nPublisher events Experian identity data"]
- end
 
- %% INGESTION 
- subgraph INGEST["INGESTION Auto Loader"]
- AL["cloudFiles\nSchema inference Evolution Exactly-once"]
- end
+    subgraph SOURCES["SOURCES - E-Commerce Website"]
+        EV["CSV: ecommerce_events\npage_view - add_to_cart - checkout_start - purchase"]
+        UP["CSV: user_profiles\nConsumer identity - attributes - loyalty tier - CDC ops"]
+    end
 
- %% BRONZE 
- subgraph BRONZE["BRONZE LAYER"]
- BR["bronze_ad_events\n\nRaw Append-only Full fidelity\n_ingest_timestamp _source_file\nNo transformations applied"]
- end
+    subgraph INGEST["INGESTION - Auto Loader (Python)"]
+        AL1["cloudFiles - CSV\nSchema declared - header=true\nschemaEvolutionMode: addNewColumns"]
+        AL2["cloudFiles - CSV\nSchema declared - header=true\nCDC operation column preserved"]
+    end
 
- %% SILVER 
- subgraph SILVER["SILVER LAYER"]
- SV["silver_ad_events\n\nWatermark: 10 min late tolerance\nDedup on event_id\nConsent filter: consent_flag = true\nDerived: event_date event_hour is_mobile\nCDF enabled for downstream CDC"]
- DQ["DLT Expectations\n\nvalid_event_type\nconsent_required\nnon_null_event_id\nnon_null_campaign\nviolations: dropped + logged"]
- end
+    subgraph BRONZE["BRONZE LAYER"]
+        BR1["bronze_ecommerce_events\n--------------------------\nRaw clickstream - append-only\n_ingest_timestamp - _source_file\nNo transforms applied"]
+        BR2["bronze_user_profiles_raw\n--------------------------\nRaw profile rows with operation\nINSERT - UPDATE - DELETE\nAll versions preserved"]
+    end
 
- %% GOLD 
- subgraph GOLD["GOLD LAYER"]
- G1["gold_campaign_performance_hourly\n\nGrain: campaign x advertiser x publisher x geo x device x hour\nMetrics: impressions clicks conversions\nKPIs: CTR CVR eCPM revenue_usd\nZ-order: campaign_id, event_hour\nFeed: Live dashboard"]
- G2["gold_consumer_daily_signals\n\nGrain: consumer_id x event_date\nMetrics: daily clicks impressions conversions\nFeatures: engagement_score advertisers_interacted\nZ-order: consumer_id, event_date\nFeed: ML training pipeline"]
- end
+    subgraph SILVER["SILVER LAYER"]
+        SV1["silver_ecommerce_events\n--------------------------\nTECHNIQUE: Watermarks\nWatermark: 15 min late tolerance\nConsent filter - null checks\nDerived: line_total - is_purchase"]
+        SV2["silver_user_profiles\n--------------------------\nTECHNIQUE: AUTO CDC\nAPPLY CHANGES INTO\nSCD Type 1 - keyed on user_id\nSequenced by updated_at"]
+        SV3["silver_enriched_purchases\n--------------------------\nTECHNIQUE: Stream-Stream Join\nPurchase events JOIN user profiles\nEnriches WHO bought WHAT\nTargeting signals attached"]
+        SV4["silver_session_summary\n--------------------------\nTECHNIQUE: Stateful Aggregation\nSession window per user+session\nFunnel counts - intent score\nConverted flag - revenue"]
+    end
 
- %% CONSUMERS 
- subgraph CONSUMERS["DOWNSTREAM CONSUMERS"]
- D1["Live Campaign Dashboard\nAdvertiser reporting real-time KPIs"]
- D2["ML Training Job\nAudience propensity models\nIdentity graph scoring"]
- D3["Delta Sharing\nPrivacy-first partner data sharing\nAcme Media x Databricks partnership"]
- D4["Billing Reconciliation\nCPA / CPL revenue attribution"]
- end
+    subgraph GOLD["GOLD LAYER"]
+        G1["gold_post_transaction_triggers\n--------------------------\nOne record per purchase\nRecommended ad categories\nSuggested bid price\nAd format by device\nFeed: Ad serving engine"]
+        G2["gold_user_targeting_profile\n--------------------------\nAggregate profile per user\nBehavioral targeting tier\nCategory affinity\nConversion rate - LTV\nFeed: ML audience model"]
+    end
 
- %% FLOW 
- K --> AL
- S --> AL
- P --> AL
- AL -->|"Structured Streaming\nexactly-once"| BR
- BR -->|"Streaming read\nwatermark + dedup"| DQ
- DQ -->|"expect_or_drop\nviolations logged"| SV
- SV -->|"Materialized View\nbatch refresh"| G1
- SV -->|"Materialized View\ndaily refresh"| G2
- G1 --> D1
- G1 --> D4
- G2 --> D2
- G2 --> D3
+    subgraph CONSUMERS["DOWNSTREAM CONSUMERS"]
+        D1["Post-Transaction Ad Server\nServes personalized ad immediately after purchase"]
+        D2["ML Audience Model\nRefreshes propensity scores and identity graph nightly"]
+        D3["Campaign Reporting\nCTR - CVR - revenue by campaign and targeting tier"]
+    end
 
- %% STYLES 
- classDef sourceStyle fill:#1e2d40,stroke:#2563eb,color:#93c5fd
- classDef ingestStyle fill:#1c2b1e,stroke:#16a34a,color:#86efac
- classDef bronzeStyle fill:#2d1f0e,stroke:#b45309,color:#fbbf24
- classDef silverStyle fill:#0c1929,stroke:#2563eb,color:#93c5fd
- classDef dqStyle fill:#1a0a0a,stroke:#dc2626,color:#fca5a5
- classDef goldStyle fill:#141a06,stroke:#65a30d,color:#bef264
- classDef consumerStyle fill:#1e1530,stroke:#7c3aed,color:#c4b5fd
+    EV --> AL1
+    UP --> AL2
+    AL1 -->|"Structured Streaming\nexactly-once via checkpoint"| BR1
+    AL2 -->|"Structured Streaming\nexactly-once via checkpoint"| BR2
 
- class K,S,P sourceStyle
- class AL ingestStyle
- class BR bronzeStyle
- class SV silverStyle
- class DQ dqStyle
- class G1,G2 goldStyle
- class D1,D2,D3,D4 consumerStyle
+    BR1 -->|"STREAM read\nwatermark + consent filter"| SV1
+    BR2 -->|"APPLY CHANGES INTO\nAUTO CDC merge"| SV2
+
+    SV1 -->|"Stream-stream join\npurchase events only"| SV3
+    SV2 -->|"Stream-stream join\nprofile enrichment"| SV3
+    SV1 -->|"Stateful GROUP BY\nsession window"| SV4
+
+    SV3 -->|"Materialized View"| G1
+    SV4 -->|"Materialized View"| G2
+
+    G1 --> D1
+    G1 --> D3
+    G2 --> D2
+    G2 --> D3
+
+    classDef sourceStyle   fill:#1e2d40,stroke:#2563eb,color:#93c5fd
+    classDef ingestStyle   fill:#1c2b1e,stroke:#16a34a,color:#86efac
+    classDef bronzeStyle   fill:#2d1f0e,stroke:#b45309,color:#fbbf24
+    classDef silverStyle   fill:#0c1929,stroke:#2563eb,color:#93c5fd
+    classDef goldStyle     fill:#141a06,stroke:#65a30d,color:#bef264
+    classDef consumerStyle fill:#1e1530,stroke:#7c3aed,color:#c4b5fd
+
+    class EV,UP sourceStyle
+    class AL1,AL2 ingestStyle
+    class BR1,BR2 bronzeStyle
+    class SV1,SV2,SV3,SV4 silverStyle
+    class G1,G2 goldStyle
+    class D1,D2,D3 consumerStyle

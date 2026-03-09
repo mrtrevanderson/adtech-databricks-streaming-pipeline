@@ -1,104 +1,103 @@
-# Acme Media Ad Events Streaming Pipeline
+# Acme Media - Post-Transaction Ad Targeting Pipeline
 
-A hands-on tutorial pipeline modeled on **Acme Media's** real-time ad event infrastructure. 
-Built with **Spark Structured Streaming** and **Lakeflow Spark Declarative Pipelines (SDP)** on Databricks.
+A hands-on Databricks tutorial pipeline that simulates a post-transaction ad targeting
+platform built on Spark Structured Streaming and Lakeflow Declarative Pipelines.
 
-> **Purpose:** Interview preparation / learning project. 
-> Demonstrates the medallion architecture pattern used in adtech data platforms processing click, impression, and conversion events at scale.
+The business scenario: a user completes a purchase on an e-commerce website. Within
+seconds, the pipeline identifies who they are, what they just bought, and what ad to
+serve them next -- personalized based on their profile attributes and purchase context.
 
 ---
 
 ## Business Context
 
-[Acme Media](https://acmemedia.com) is a commerce media company with 200M+ first-party consumer profiles. Their platform:
+Post-transaction ad serving is a high-value moment in commerce media. When a user
+completes a purchase, they are highly engaged and receptive to relevant offers.
+The challenge is speed and personalization: you need to know who they are and what
+to serve them before they leave the confirmation page.
 
-- Ingests ad click, impression, and conversion events in real time
-- Deduplicates and consent-filters events before any downstream use
-- Feeds live campaign dashboards for advertiser reporting
-- Produces daily consumer engagement signals for ML audience modeling
-- Uses **Databricks** (via official partnership) for data intelligence and Delta Sharing
+This pipeline solves that by:
+1. Streaming every user interaction on the e-commerce site in real time
+2. Identifying the user and matching them to their first-party profile via a stream-stream join
+3. Detecting the purchase event and generating a targeting record immediately
+4. Maintaining a rolling behavioral profile for ML model refreshes
 
-This pipeline replicates that core hot path.
+---
+
+## Streaming Techniques Demonstrated
+
+This pipeline is designed as a learning resource. Each Silver layer table demonstrates
+a distinct Spark Structured Streaming technique:
+
+| Technique | Where | What it teaches |
+|---|---|---|
+| Auto Loader (CSV) | Bronze | Incremental file ingestion with schema declaration |
+| Watermarks | silver_ecommerce_events | Tolerating late-arriving mobile events |
+| AUTO CDC | silver_user_profiles | Merging INSERT/UPDATE/DELETE into a current-state table |
+| Stream-Stream Join | silver_enriched_purchases | Enriching events with profile data in real time |
+| Stateful Session Aggregation | silver_session_summary | Building behavioral session windows |
 
 ---
 
 ## Architecture
 
 ```
-Kafka / S3 Landing Zone
- 
- 
- [Auto Loader] schema inference + evolution, exactly-once
- 
- 
- 
- BRONZE bronze_ad_events Raw, append-only, full fidelity
- 
- Spark Structured Streaming
- 
- 
- SILVER silver_ad_events Deduped Consent-filtered DLT expectations
- 
- 
- 
- 
- 
- GOLD campaign_perf GOLD consumer_daily_signals
- (hourly) Live dashboard (daily) ML training
- 
+E-Commerce Website
+    |                               |
+CSV: ecommerce_events        CSV: user_profiles
+(clickstream)                (identity/attributes + CDC ops)
+    |                               |
+    v                               v
+[Auto Loader]                 [Auto Loader]
+    |                               |
+    v                               v
+bronze_ecommerce_events     bronze_user_profiles_raw
+(raw, append-only)          (raw CDC records preserved)
+    |                               |
+    v                               v
+silver_ecommerce_events     silver_user_profiles
+(watermark + consent filter)  (AUTO CDC - SCD Type 1)
+    |           |                   |
+    |           +-------------------+
+    |           | Stream-Stream Join
+    |           v
+    |    silver_enriched_purchases
+    |    (purchase + profile merged)
+    |
+    v
+silver_session_summary
+(stateful session window agg)
+    |                           |
+    v                           v
+gold_post_transaction_triggers  gold_user_targeting_profile
+(ad serve trigger per purchase) (aggregate behavioral profile)
+    |                           |
+    v                           v
+Ad Serving Engine           ML Audience Model
 ```
 
-See [`diagrams/pipeline_architecture.svg`](diagrams/pipeline_architecture.svg) for the full visual.
-
----
-
-## Pipeline Layers
-
-### Bronze `bronze_ad_events`
-- Reads JSON files via **Auto Loader** (`cloudFiles` format)
-- Handles schema inference, evolution, and new column addition automatically
-- Append-only; no transformations applied
-- Captures `_ingest_timestamp` and `_source_file` for lineage
-
-### Silver `silver_ad_events`
-- **Deduplication** on `event_id` using Structured Streaming watermarks (10-minute late tolerance)
-- **Consent filtering** drops non-consented events (CCPA/GDPR compliance)
-- **DLT Expectations** enforce data quality; rows failing checks are dropped and logged:
- - `valid_event_type` only click / impression / conversion
- - `consent_required` consent_flag must be true
- - `non_null_event_id` UUID must be present
- - `non_null_campaign` campaign_id must be present
-- Derives `event_date`, `event_hour`, `is_mobile`
-- Change Data Feed (CDF) enabled for downstream CDC consumers
-
-### Gold `gold_campaign_performance_hourly`
-- Hourly rollup at `(campaign_id, advertiser_id, publisher_id, geo_region, device_type)` grain
-- Computes: impressions, clicks, conversions, CTR, CVR, eCPM, revenue, unique consumers
-- **Primary feed for live campaign performance dashboards**
-- Z-ordered on `campaign_id, event_hour` for fast dashboard queries
-
-### Gold `gold_consumer_daily_signals`
-- Daily rollup at `(consumer_id, event_date)` grain
-- Computes: engagement_score (weighted), advertisers interacted, daily revenue
-- **Feeds nightly ML training job** that refreshes Acme Media's audience targeting models
+See `diagrams/pipeline_architecture.mermaid` for the full visual.
 
 ---
 
 ## Repo Structure
 
 ```
-acme-streaming-pipeline/
- pipeline/
- acme_ad_events_pipeline.py # Main Lakeflow SDP pipeline (BronzeSilverGold)
- pipeline_config.json # Databricks pipeline configuration
- notebooks/
- 01_data_generator.py # Synthetic event data generator
- 02_validation_monitoring.py # Data quality checks + monitoring queries
- diagrams/
- pipeline_architecture.svg # Architecture diagram
- docs/
- ARCHITECTURE.md # Deep-dive technical documentation
- README.md
+adtech-databricks-streaming-pipeline/
+├── pipeline/
+│   ├── 01_bronze_ingestion.py        # Auto Loader ingestion (Python - required for cloudFiles)
+│   ├── 02_silver_transforms.sql      # Watermarks, AUTO CDC, stream-stream join, session agg
+│   ├── 03_gold_ad_targeting.sql      # Post-transaction triggers + user targeting profiles
+│   └── pipeline_config.json          # Databricks Lakeflow pipeline configuration
+├── notebooks/
+│   ├── 01_data_generator.py          # Synthetic e-commerce event + profile data generator
+│   └── 02_validation_monitoring.py   # Layer-by-layer validation and monitoring queries
+├── sample_data/
+│   ├── ecommerce_events_sample.csv   # Sample clickstream events (reference schema)
+│   └── user_profiles_sample.csv      # Sample user profiles with CDC operations
+├── diagrams/
+│   └── pipeline_architecture.mermaid # Architecture diagram
+└── README.md
 ```
 
 ---
@@ -109,90 +108,74 @@ acme-streaming-pipeline/
 |---|---|
 | Databricks workspace | AWS, Azure, or GCP |
 | Unity Catalog enabled | Required for catalog.schema.table paths |
-| Serverless compute (optional) | Or standard compute with DBR 13.3 LTS+ |
-| Lakeflow SDP (DLT) enabled | Advanced or Core edition |
-| `acme_catalog` catalog created | Or update catalog name in config |
+| Lakeflow SDP (DLT) Advanced edition | Required for AUTO CDC |
+| `acme_catalog` catalog created | Or update catalog references in all files |
 
 ---
 
 ## Setup & Run
 
-### 1. Create the catalog and volume
+### 1. Create catalog, schema, and volumes
 
 ```sql
 CREATE CATALOG IF NOT EXISTS acme_catalog;
-CREATE SCHEMA IF NOT EXISTS acme_catalog.raw;
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw.ad_events;
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw.schema_hints;
+CREATE SCHEMA  IF NOT EXISTS acme_catalog.raw;
+CREATE SCHEMA  IF NOT EXISTS acme_catalog.acme_ad_pipeline;
+
+CREATE VOLUME IF NOT EXISTS acme_catalog.raw.ecommerce_events;
+CREATE VOLUME IF NOT EXISTS acme_catalog.raw.user_profiles;
+CREATE VOLUME IF NOT EXISTS acme_catalog.raw._schema_hints;
 ```
 
-### 2. Import the repo into Databricks Repos
+### 2. Import repo into Databricks
 
-```
-Workspace Repos Add Repo paste your GitHub URL
-```
+Workspace -> Repos -> Add Repo -> paste your GitHub URL
 
-### 3. Generate synthetic data
+### 3. Generate sample data
 
-Open `notebooks/01_data_generator.py` in your workspace and run all cells. 
-This writes 10 batches of synthetic JSON events to the Auto Loader source path.
+Open `notebooks/01_data_generator.py` and run all cells.
+This writes 10 batches of synthetic CSV events and profile updates to the volumes.
 
 ### 4. Create the pipeline
 
-Option A **UI**:
-1. Go to **Workflows Pipelines Create Pipeline**
-2. Name it `acme_ad_events_pipeline`
-3. Set source file: `/Repos/.../pipeline/acme_ad_events_pipeline.py`
-4. Set catalog: `acme_catalog`
-5. Click **Start**
+Option A - UI:
+1. Workflows -> Pipelines -> Create Pipeline
+2. Name: `acme_ad_events_pipeline`
+3. Add source files in order: 01_bronze_ingestion.py, 02_silver_transforms.sql, 03_gold_ad_targeting.sql
+4. Set catalog: `acme_catalog`, target schema: `acme_ad_pipeline`
+5. Click Start
 
-Option B **API / CLI**:
-```bash
-databricks pipelines create --json @pipeline/pipeline_config.json
-databricks pipelines start <pipeline-id>
-```
+Option B - config file:
+Upload `pipeline/pipeline_config.json` via the Pipelines API or CLI.
 
-### 5. Validate
+### 5. Validate results
 
 Open `notebooks/02_validation_monitoring.py` and run each cell to verify:
-- Row count funnel (Bronze Silver Gold)
-- Zero quality violations in Silver
-- Gold aggregates populated correctly
+- Row count funnel across all 8 tables
+- Zero data quality violations in Silver
+- AUTO CDC merged profiles correctly (one row per user)
+- Stream-stream join populated enriched purchases
+- Gold targeting records have bid prices and ad recommendations
 
 ---
 
-## Key Concepts Demonstrated
+## Key Design Decisions
 
-| Concept | Where |
-|---|---|
-| Auto Loader (cloudFiles) | `bronze_ad_events()` |
-| Watermarks for late data | `silver_ad_events()` `withWatermark("event_timestamp", "10 minutes")` |
-| Stateful deduplication | `silver_ad_events()` `dropDuplicates(["event_id"])` |
-| DLT data quality expectations | `@dlt.expect_or_drop` decorators on silver |
-| Materialized views (batch Gold) | `gold_campaign_performance_hourly()` |
-| Streaming tables (append Gold) | `gold_consumer_daily_signals()` |
-| Delta Change Data Feed | `"delta.enableChangeDataFeed": "true"` on silver |
-| Z-ordering for query perf | `pipelines.autoOptimize.zOrderCols` on gold tables |
+**Why is Bronze Python and Silver/Gold SQL?**
+Auto Loader's `cloudFiles` format is only available via the Python/Scala DataFrame API.
+Everything else is expressed in SQL to keep transformations readable and easy to maintain.
 
----
+**Why a stream-stream join instead of a stream-static join?**
+User profiles update in real time (new purchases, consent changes, loyalty tier upgrades).
+A stream-static join would miss profile updates that arrive after the pipeline starts.
+The stream-stream join ensures every purchase event is enriched with the most current profile.
 
-## Cost Optimization Notes
+**Why SCD Type 1 for user profiles?**
+The ad targeting use case needs the current state of a user's profile, not history.
+SCD Type 1 (overwrite on update) keeps the table small and query-fast.
+If profile history is needed (for model training audits), add SCD Type 2 as a separate table.
 
-- **Photon enabled** in `pipeline_config.json` accelerates columnar operations on Gold aggregates
-- **Autoscale 28 workers** scales down during off-peak ingestion lulls
-- **Auto Optimize + Auto Compact** prevents small file accumulation in Delta tables
-- **Tiered storage** cold Bronze files can be transitioned to S3 Infrequent Access after 30 days
-- For higher scale: consider **Trigger.AvailableNow** for SilverGold to decouple streaming and batch costs
-
----
-
-## Interview Talking Points
-
-This pipeline directly maps to the technical areas in a Data Platform EM interview:
-
-- **Streaming vs batch**: BronzeSilver is streaming (low latency dedup/consent); SilverGold campaign perf is a materialized view (batch refresh) because dashboards don't need sub-second freshness
-- **Exactly-once semantics**: Auto Loader + Delta checkpointing provides exactly-once; Silver adds application-level dedup with watermarks
-- **Late data handling**: Watermark set to 10 minutes; events arriving later are dropped acceptable for ad attribution at this latency tier
-- **Cost optimization**: Photon + autoscale + auto-compact; Z-ordering on Gold tables cuts downstream query scan costs
-- **Data quality as code**: DLT expectations are version-controlled quality contracts, not ad-hoc checks
-- **Acme Media + Databricks**: Acme Media uses Databricks (Delta Sharing partnership) this stack is directly relevant
+**Why session windows instead of tumbling time windows?**
+A tumbling 1-hour window would split a single user session across window boundaries.
+Session-based aggregation (GROUP BY session_id) correctly captures the complete funnel
+for each visit, regardless of when it started or how long it lasted.

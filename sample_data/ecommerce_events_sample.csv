@@ -1,0 +1,16 @@
+event_id,event_timestamp,session_id,user_id,event_type,page_url,product_id,product_category,product_price,quantity,order_id,consent_flag,device_type,geo_region,ip_hash
+evt_001,2024-03-01 10:00:01,sess_aaa,usr_101,page_view,/home,,,,,,true,mobile,CA,hash_111
+evt_002,2024-03-01 10:00:45,sess_aaa,usr_101,page_view,/products/shoes,prod_501,footwear,89.99,,,true,mobile,CA,hash_111
+evt_003,2024-03-01 10:01:30,sess_aaa,usr_101,add_to_cart,/products/shoes,prod_501,footwear,89.99,1,,true,mobile,CA,hash_111
+evt_004,2024-03-01 10:02:10,sess_aaa,usr_101,checkout_start,/checkout,prod_501,footwear,89.99,1,,true,mobile,CA,hash_111
+evt_005,2024-03-01 10:03:05,sess_aaa,usr_101,purchase,/order-confirm,prod_501,footwear,89.99,1,ord_9001,true,mobile,CA,hash_111
+evt_006,2024-03-01 10:05:00,sess_bbb,usr_202,page_view,/home,,,,,,true,desktop,NY,hash_222
+evt_007,2024-03-01 10:06:20,sess_bbb,usr_202,page_view,/products/jacket,prod_302,apparel,149.00,,,true,desktop,NY,hash_222
+evt_008,2024-03-01 10:07:45,sess_bbb,usr_202,add_to_cart,/products/jacket,prod_302,apparel,149.00,1,,true,desktop,NY,hash_222
+evt_009,2024-03-01 10:09:00,sess_bbb,usr_202,purchase,/order-confirm,prod_302,apparel,149.00,1,ord_9002,true,desktop,NY,hash_222
+evt_010,2024-03-01 10:10:00,sess_ccc,usr_303,page_view,/home,,,,,,false,mobile,TX,hash_333
+evt_011,2024-03-01 10:11:30,sess_ccc,usr_303,page_view,/products/watch,prod_405,accessories,299.00,,,false,mobile,TX,hash_333
+evt_012,2024-03-01 10:15:00,sess_ddd,usr_404,page_view,/home,,,,,,true,tablet,FL,hash_444
+evt_013,2024-03-01 10:16:10,sess_ddd,usr_404,add_to_cart,/products/bag,prod_601,accessories,75.00,2,,true,tablet,FL,hash_444
+evt_014,2024-03-01 10:17:30,sess_ddd,usr_404,checkout_start,/checkout,prod_601,accessories,75.00,2,,true,tablet,FL,hash_444
+evt_015,2024-03-01 10:18:45,sess_ddd,usr_404,purchase,/order-confirm,prod_601,accessories,75.00,2,ord_9003,true,tablet,FL,hash_444
