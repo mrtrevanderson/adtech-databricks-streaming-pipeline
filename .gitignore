@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+
+# Databricks
+.databricks/
+*.dbc
+
+# Delta / Spark checkpoints (never commit these)
+_checkpoints/
+_delta_log/
+*.crc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

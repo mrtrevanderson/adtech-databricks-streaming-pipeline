@@ -1,0 +1,49 @@
+{
+ "name": "acme_ad_events_pipeline",
+ "description": "Acme Media ad event streaming pipeline: Bronze Silver Gold medallion architecture. Ingests click/impression/conversion events, deduplicates, validates consent, and produces campaign performance and consumer engagement aggregates.",
+ "catalog": "acme_catalog",
+ "target": "acme_ad_pipeline",
+ "libraries": [
+ {
+ "file": {
+ "path": "/Workspace/Repos/acme-streaming-pipeline/pipeline/acme_ad_events_pipeline.py"
+ }
+ }
+ ],
+ "configuration": {
+ "pipelines.enableTrackHistory": "true",
+ "spark.databricks.delta.preview.enabled": "true",
+ "raw_events_path": "/Volumes/acme_catalog/raw/ad_events/",
+ "schema_hints_path": "/Volumes/acme_catalog/raw/schema_hints/",
+ "watermark_delay": "10 minutes"
+ },
+ "clusters": [
+ {
+ "label": "default",
+ "autoscale": {
+ "min_workers": 2,
+ "max_workers": 8,
+ "mode": "ENHANCED"
+ },
+ "spark_conf": {
+ "spark.databricks.delta.optimizeWrite.enabled": "true",
+ "spark.databricks.delta.autoCompact.enabled": "true"
+ }
+ }
+ ],
+ "continuous": false,
+ "development": true,
+ "edition": "ADVANCED",
+ "photon": true,
+ "channel": "CURRENT",
+ "event_log": {
+ "catalog": "acme_catalog",
+ "schema": "acme_ad_pipeline",
+ "name": "acme_ad_pipeline_events"
+ },
+ "filters": {
+ "include": [
+ "acme_catalog.*"
+ ]
+ }
+}
