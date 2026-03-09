@@ -247,3 +247,100 @@ At Fluent's scale of 200M profiles, the static side would need to be partitioned
 A tumbling 1-hour window would split a single user session across window boundaries.
 Session-based aggregation (GROUP BY session_id) correctly captures the complete funnel
 for each visit, regardless of when it started or how long it lasted.
+
+---
+
+## Cost Optimization Considerations
+
+The following optimizations are not implemented in this demo pipeline but should be
+considered before moving to production at scale.
+
+### Compute
+
+**Triggered mode for non-real-time tables**
+`gold_user_targeting_profile` and `silver_session_summary` are Materialized Views used
+for ML and analytics — not real-time ad serving. Running them on a schedule (e.g. hourly)
+instead of continuously avoids keeping a cluster alive for tables that don't need
+sub-second freshness. Only `gold_post_transaction_triggers` and its upstream streaming
+tables need to run continuously.
+
+**Right-size the cluster**
+Streaming pipelines don't need large workers. A single-node or 2-worker cluster handles
+low-to-medium event volume. Enable auto-scaling with a conservative max to absorb traffic
+spikes without over-provisioning at baseline.
+
+**Spot / preemptible instances**
+Streaming workloads tolerate interruptions if checkpoints are healthy. AWS Spot instances
+are 60-90% cheaper than on-demand. Lakeflow checkpoints to S3 so a spot interruption
+triggers a clean resume from the last committed offset, not a full reprocess.
+
+### Storage
+
+**OPTIMIZE + VACUUM on Bronze**
+The data generator writes one CSV file every 10 seconds. Over hours this produces
+thousands of tiny Delta files, increasing S3 GET costs and degrading read performance.
+Run `OPTIMIZE` to compact files and `VACUUM` to remove obsolete Delta versions:
+
+```sql
+OPTIMIZE ius_unity_prod.sandbox.bronze_ecommerce_events;
+VACUUM   ius_unity_prod.sandbox.bronze_ecommerce_events RETAIN 168 HOURS;
+
+OPTIMIZE ius_unity_prod.sandbox.bronze_user_profiles_raw;
+VACUUM   ius_unity_prod.sandbox.bronze_user_profiles_raw RETAIN 168 HOURS;
+```
+
+**Delta retention policies**
+Bronze retains all historical file versions by default. 7-day retention is sufficient
+for most pipelines and significantly reduces S3 storage costs over time:
+
+```sql
+ALTER TABLE ius_unity_prod.sandbox.bronze_ecommerce_events
+SET TBLPROPERTIES (
+  'delta.logRetentionDuration'         = 'interval 7 days',
+  'delta.deletedFileRetentionDuration' = 'interval 7 days'
+);
+```
+
+**Partition pruning on Gold**
+Add `event_date` as a partition column on `gold_post_transaction_triggers` so downstream
+ad server queries and analytics only scan the relevant day's data rather than the full table.
+
+### Pipeline Architecture
+
+**Tighten the watermark**
+The 15-minute watermark holds 15 minutes of events in executor memory, requiring a larger
+cluster to avoid OOM. If telemetry shows p99 late arrival is actually 3-5 minutes, tighten
+the watermark to reduce state size and run a smaller cluster. Instrument this with the
+dead letter table pattern to measure actual late arrival distribution before tuning.
+
+**Minimum microbatch interval**
+In continuous mode Spark processes microbatches as fast as possible. Setting a minimum
+trigger interval (e.g. 30 seconds) reduces the number of full `silver_user_profiles`
+snapshot reads per hour on the stream-static join side, directly reducing compute cost
+with minimal latency impact for most ad serving SLAs.
+
+**Filter at Bronze**
+The consent filter (`consent_flag = true`) currently runs in Silver, meaning non-consented
+rows flow through Bronze ingestion and consume Bronze compute. Moving the filter to Bronze
+would reduce the data volume Silver processes by ~3%, compounding savings across all
+downstream layers.
+
+**Dead letter table for late events**
+Late events dropped by the watermark are currently silently discarded. Routing them to a
+dead letter table enables watermark tuning based on real data rather than conservative
+estimates, potentially allowing a tighter watermark and smaller cluster over time.
+
+### Scale Considerations (200M Profiles)
+
+At Fluent's scale the stream-static join against `silver_user_profiles` becomes the
+dominant cost driver. Every microbatch reads the full profile snapshot — at 200M rows
+this is a full table scan per batch. Mitigations:
+
+- **Partition by user_id hash** — each executor only loads the profile slice it needs
+- **Databricks Feature Store** — profiles live in a low-latency feature store, the join
+  becomes a lightweight lookup rather than a full Delta scan
+- **Redis serving layer** — pre-computed offers written to Redis keyed by `order_id`
+  with a 30-minute TTL, so the ad server never queries Delta directly at serve time
+
+A well-tuned triggered pipeline vs a naive continuous one is typically **3-5x cheaper**
+for a workload of this type at production scale.
