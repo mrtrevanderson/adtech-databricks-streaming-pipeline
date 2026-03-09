@@ -5,21 +5,27 @@
 -- post-transaction ad serving engine.
 --
 -- After a user completes a purchase, two things need to happen fast:
---   1. Determine what ad to serve (based on profile + purchase context)
+--   1. Determine what offer to serve (based on profile + purchase context)
 --   2. Update the user's aggregate targeting profile for future sessions
+--
+-- OFFER RECOMMENDATION LOGIC:
+--   Priority order:
+--     1. Complementary category to what was just purchased (highest signal)
+--     2. User's stated preferred_categories (profile affinity)
+--     3. User's interests (broader signal)
+--     4. Fallback generic offer
 -- =============================================================================
 
 
 -- -----------------------------------------------------------------------------
 -- GOLD 1: Post-Transaction Ad Triggers
 -- One record per purchase event, ready for the ad serving engine to consume.
--- This is the "serve an ad RIGHT NOW" output -- latency matters here.
 -- -----------------------------------------------------------------------------
 CREATE OR REFRESH MATERIALIZED VIEW gold_post_transaction_triggers
-  COMMENT "One record per completed purchase, enriched with ad targeting signals.
-           This is the primary feed for the post-transaction ad serving engine.
+  COMMENT "One record per completed purchase, enriched with personalized offer recommendations.
+           Offer is selected based on purchase context + user interest affinity.
            After a user completes a purchase, this record tells the ad engine:
-           who they are, what they bought, and what ad category to serve next."
+           who they are, what they bought, and what offer to serve next."
   TBLPROPERTIES (
     "quality"                           = "gold",
     "pipelines.autoOptimize.zOrderCols" = "user_id,event_date"
@@ -43,29 +49,135 @@ SELECT
     p.device_type,
     p.geo_region,
 
-    -- Who bought it (profile attributes for targeting)
+    -- Who bought it
     p.age_band,
     p.gender,
     p.income_band,
     p.loyalty_tier,
     p.lifetime_value_usd,
+    p.interests,
+    p.preferred_categories,
     p.is_high_value_customer,
     p.is_repeat_buyer,
     p.is_loyal_shopper,
 
-    -- Ad targeting recommendation
-    -- Logic: suggest complementary categories based on what was just purchased
-    CASE p.purchased_category
-        WHEN 'footwear'     THEN 'activewear,fitness,socks'
-        WHEN 'apparel'      THEN 'accessories,footwear,bags'
-        WHEN 'accessories'  THEN 'apparel,footwear,jewelry'
-        WHEN 'electronics'  THEN 'accessories,tech_accessories,cables'
-        WHEN 'beauty'       THEN 'skincare,wellness,fragrance'
-        ELSE p.preferred_categories
-    END                                         AS recommended_ad_categories,
+    -- ---------------------------------------------------------------------
+    -- OFFER RECOMMENDATION
+    -- Step 1: derive the most relevant category for this user by combining
+    --         purchase context with profile affinity signals.
+    -- Step 2: map that category to a concrete offer string.
+    --
+    -- Logic:
+    --   - If interests or preferred_categories mention the purchased category,
+    --     the user has strong affinity -- serve a complementary offer in that
+    --     same vertical (e.g. bought footwear + likes fitness = running gear deal)
+    --   - Otherwise serve the top complementary category for what was bought
+    --   - Loyalty tier upgrades the offer language for high-value customers
+    -- ---------------------------------------------------------------------
 
-    -- Bid price signal: how much should we bid to serve this user an ad?
-    -- Higher value customers get higher bids for premium placements
+    -- Derived affinity category: does the user's profile align with purchase?
+    CASE
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%sport%'
+          OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%sport%'
+          OR LOWER(COALESCE(p.purchased_category, '')) LIKE '%sport%'
+            THEN 'sports'
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%fitness%'
+          OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%fitness%'
+          OR p.purchased_category IN ('footwear', 'activewear')
+            THEN 'fitness'
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%tech%'
+          OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%tech%'
+          OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%electron%'
+          OR p.purchased_category = 'electronics'
+            THEN 'tech'
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%beauty%'
+          OR LOWER(COALESCE(p.interests, '')) LIKE '%skincare%'
+          OR p.purchased_category = 'beauty'
+            THEN 'beauty'
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%fashion%'
+          OR p.purchased_category IN ('apparel', 'accessories', 'footwear')
+            THEN 'fashion'
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%home%'
+          OR p.purchased_category IN ('home', 'furniture', 'kitchen')
+            THEN 'home'
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%travel%'
+            THEN 'travel'
+        ELSE 'general'
+    END                                         AS affinity_category,
+
+    -- Concrete offer recommendation based on affinity + loyalty tier
+    CASE
+        -- Sports affinity
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%sport%'
+           OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%sport%'
+           OR LOWER(COALESCE(p.purchased_category, '')) LIKE '%sport%')
+          AND p.loyalty_tier IN ('platinum', 'gold')
+            THEN 'Exclusive: 20% off top sports equipment brands'
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%sport%'
+           OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%sport%'
+           OR LOWER(COALESCE(p.purchased_category, '')) LIKE '%sport%')
+            THEN 'Sports gear deal: save on your next equipment purchase'
+
+        -- Fitness affinity
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%fitness%'
+           OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%fitness%'
+           OR p.purchased_category IN ('footwear', 'activewear'))
+          AND p.loyalty_tier IN ('platinum', 'gold')
+            THEN 'VIP: Free shipping on activewear + fitness accessories'
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%fitness%'
+           OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%fitness%'
+           OR p.purchased_category IN ('footwear', 'activewear'))
+            THEN 'Complete your workout kit — activewear deals inside'
+
+        -- Tech affinity
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%tech%'
+           OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%electron%'
+           OR p.purchased_category = 'electronics')
+          AND p.loyalty_tier IN ('platinum', 'gold')
+            THEN 'Early access: new tech accessories at member pricing'
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%tech%'
+           OR LOWER(COALESCE(p.preferred_categories, '')) LIKE '%electron%'
+           OR p.purchased_category = 'electronics')
+            THEN 'Pair it up — accessories for your new device'
+
+        -- Beauty affinity
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%beauty%'
+           OR LOWER(COALESCE(p.interests, '')) LIKE '%skincare%'
+           OR p.purchased_category = 'beauty')
+          AND p.loyalty_tier IN ('platinum', 'gold')
+            THEN 'Luxury skincare set — exclusive member offer'
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%beauty%'
+           OR LOWER(COALESCE(p.interests, '')) LIKE '%skincare%'
+           OR p.purchased_category = 'beauty')
+            THEN 'Complete your routine — top beauty deals this week'
+
+        -- Fashion affinity
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%fashion%'
+           OR p.purchased_category IN ('apparel', 'accessories', 'footwear'))
+          AND p.loyalty_tier IN ('platinum', 'gold')
+            THEN 'Style upgrade: member-exclusive fashion offers'
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%fashion%'
+           OR p.purchased_category IN ('apparel', 'accessories', 'footwear'))
+            THEN 'Complete the look — matching accessories on sale'
+
+        -- Home affinity
+        WHEN (LOWER(COALESCE(p.interests, '')) LIKE '%home%'
+           OR p.purchased_category IN ('home', 'furniture', 'kitchen'))
+            THEN 'Home refresh deals — save on decor and essentials'
+
+        -- Travel affinity
+        WHEN LOWER(COALESCE(p.interests, '')) LIKE '%travel%'
+            THEN 'Travel ready — gear and accessories for your next trip'
+
+        -- High value fallback with no strong affinity
+        WHEN p.loyalty_tier IN ('platinum', 'gold')
+            THEN 'Exclusive member offer — top deals selected for you'
+
+        -- Generic fallback
+        ELSE 'Check out today''s top deals'
+    END                                         AS recommended_offer,
+
+    -- Bid price: how much to bid for this placement
     CASE p.loyalty_tier
         WHEN 'platinum' THEN 15.00
         WHEN 'gold'     THEN 10.00
@@ -73,17 +185,6 @@ SELECT
         ELSE                  3.00
     END                                         AS suggested_max_bid_usd,
 
-    -- Ad format recommendation based on device
-    CASE p.device_type
-        WHEN 'mobile'  THEN 'interstitial'
-        WHEN 'tablet'  THEN 'banner_large'
-        ELSE                'banner_standard'
-    END                                         AS recommended_ad_format,
-
-    -- Personalization context for the ad creative
-    p.interests,
-    p.preferred_categories,
-    p.total_orders,
     CURRENT_TIMESTAMP()                         AS targeting_generated_at
 
 FROM LIVE.silver_enriched_purchases AS p;
@@ -91,8 +192,6 @@ FROM LIVE.silver_enriched_purchases AS p;
 
 -- -----------------------------------------------------------------------------
 -- GOLD 2: User Aggregate Targeting Profile
--- Rolled-up behavioral profile per user across all sessions.
--- Updated after every session -- feeds identity graph and ML models.
 -- -----------------------------------------------------------------------------
 CREATE OR REFRESH MATERIALIZED VIEW gold_user_targeting_profile
   COMMENT "Aggregate behavioral profile per user across all sessions and purchases.
@@ -124,7 +223,7 @@ SELECT
     ROUND(SUM(s.session_revenue_usd), 2)        AS total_revenue_usd,
     ROUND(AVG(s.session_revenue_usd), 2)        AS avg_order_value_usd,
 
-    -- Category affinity (what do they browse and buy?)
+    -- Category affinity
     FLATTEN(COLLECT_LIST(s.categories_browsed)) AS all_categories_browsed,
 
     -- Device + geo preference
@@ -135,7 +234,7 @@ SELECT
     MAX(s.session_end)                          AS last_active_at,
     MAX(s.event_date)                           AS last_active_date,
 
-    -- Targeting tier based on behavior
+    -- Targeting tier
     CASE
         WHEN SUM(s.session_revenue_usd) > 500   THEN 'high_value'
         WHEN SUM(s.session_revenue_usd) > 100   THEN 'mid_value'
