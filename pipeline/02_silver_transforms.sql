@@ -132,7 +132,8 @@ SELECT
     p.total_orders,
     (p.loyalty_tier IN ('gold', 'platinum'))    AS is_high_value_customer,
     (p.lifetime_value_usd > 1000)               AS is_repeat_buyer,
-    (p.total_orders > 5)                        AS is_loyal_shopper
+    (p.total_orders > 5)                        AS is_loyal_shopper,
+    e._ingest_timestamp
 FROM STREAM(LIVE.silver_ecommerce_events)
     WATERMARK event_timestamp DELAY OF INTERVAL 15 MINUTES AS e
 JOIN LIVE.silver_user_profiles AS p

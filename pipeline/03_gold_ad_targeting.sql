@@ -188,7 +188,10 @@ SELECT
         ELSE                  3.00
     END                                         AS suggested_max_bid_usd,
 
-    CURRENT_TIMESTAMP()                         AS targeting_generated_at
+    _ingest_timestamp                           AS bronze_ingest_timestamp,
+    CURRENT_TIMESTAMP()                         AS targeting_generated_at,
+    ROUND(TIMESTAMPDIFF(SECOND, purchase_timestamp, CURRENT_TIMESTAMP()), 1)
+                                                AS pipeline_latency_sec
 
 FROM STREAM(LIVE.silver_enriched_purchases) AS p;
 
