@@ -93,7 +93,8 @@ enriched_purchases = spark.sql("""
         age_band,
         is_high_value_customer,
         is_repeat_buyer,
-        recommended_ad_categories,
+        recommended_offer,
+        affinity_category,
         purchase_timestamp
     FROM ius_unity_prod.sandbox.gold_post_transaction_triggers
     ORDER BY purchase_timestamp DESC
