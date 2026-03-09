@@ -137,9 +137,16 @@ WHERE e.event_type = 'purchase'
 -- -----------------------------------------------------------------------------
 -- TECHNIQUE 4: Stateful Session Window Aggregation
 -- -----------------------------------------------------------------------------
-CREATE OR REFRESH STREAMING TABLE silver_session_summary
+-- TECHNIQUE: Materialized view instead of streaming table.
+-- COUNT(DISTINCT) and COLLECT_SET are not supported in Spark streaming aggregations
+-- regardless of windowing strategy -- this is a Spark engine limitation.
+-- Solution: use a MATERIALIZED VIEW which runs as a batch query against the
+-- already-materialized silver_ecommerce_events Delta table, making exact
+-- distinct counts fully supported.
+CREATE OR REFRESH MATERIALIZED VIEW silver_session_summary
   COMMENT "Behavioral summary per session: funnel counts, intent score, revenue.
-           Used to score session intent for ad targeting."
+           Implemented as a materialized view to support exact COUNT(DISTINCT)
+           and COLLECT_SET -- not possible in streaming aggregations."
   TBLPROPERTIES (
     "quality" = "silver"
   )
@@ -150,21 +157,17 @@ SELECT
     device_type,
     geo_region,
     event_date,
-    -- session_window bounds emit exactly when session goes quiet for 30 min.
-    -- This is what allows COUNT(DISTINCT) and COLLECT_SET -- Spark knows the
-    -- window is closed and can release state, so exact distinct counts are safe.
-    session_window(event_timestamp, '30 minutes').start        AS session_start,
-    session_window(event_timestamp, '30 minutes').end          AS session_end,
+    MIN(event_timestamp)                                        AS session_start,
+    MAX(event_timestamp)                                        AS session_end,
     ROUND(
-        (UNIX_TIMESTAMP(session_window(event_timestamp, '30 minutes').end) -
-         UNIX_TIMESTAMP(session_window(event_timestamp, '30 minutes').start)) / 60.0, 2)
-                                                               AS session_duration_min,
+        (UNIX_TIMESTAMP(MAX(event_timestamp)) -
+         UNIX_TIMESTAMP(MIN(event_timestamp))) / 60.0, 2)      AS session_duration_min,
     COUNT(*)                                                    AS total_events,
     COUNT(CASE WHEN event_type = 'page_view'      THEN 1 END)  AS page_views,
     COUNT(CASE WHEN event_type = 'add_to_cart'    THEN 1 END)  AS add_to_carts,
     COUNT(CASE WHEN event_type = 'checkout_start' THEN 1 END)  AS checkout_starts,
     COUNT(CASE WHEN event_type = 'purchase'       THEN 1 END)  AS purchases,
-    -- Exact distinct counts -- allowed because session_window bounds the state
+    -- Exact distinct counts -- supported in materialized views (batch semantics)
     COUNT(DISTINCT product_id)                                  AS unique_products_viewed,
     COLLECT_SET(product_category)                               AS categories_browsed,
     MAX(product_price)                                          AS max_product_price_viewed,
@@ -178,12 +181,6 @@ SELECT
         COUNT(CASE WHEN event_type = 'checkout_start' THEN 1 END) * 5  +
         COUNT(CASE WHEN event_type = 'purchase'       THEN 1 END) * 10,
     0)                                                          AS session_intent_score
--- TECHNIQUE: session_window groups events into sessions bounded by 30 min of
--- inactivity. Unlike a plain GROUP BY, this closes the window and emits when
--- no new events arrive within the gap -- enabling exact COUNT(DISTINCT) and
--- COLLECT_SET which require bounded state to work in streaming.
-FROM STREAM(LIVE.silver_ecommerce_events)
-    WATERMARK event_timestamp DELAY OF INTERVAL 15 MINUTES
+FROM LIVE.silver_ecommerce_events
 GROUP BY
-    session_id, user_id, device_type, geo_region, event_date,
-    session_window(event_timestamp, '30 minutes');
+    session_id, user_id, device_type, geo_region, event_date;
