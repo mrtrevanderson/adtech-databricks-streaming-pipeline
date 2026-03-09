@@ -201,6 +201,48 @@ In continuous mode, `ingest_to_gold_sec` (Auto Loader pickup → gold write) is 
 (e.g. Redis) keyed by `order_id` with a 30-minute TTL. The ad server does a Redis lookup
 in <1ms rather than querying the Delta table directly.
 
+**State management across the pipeline:**
+
+Each table in the pipeline has a different memory and state profile:
+
+| Table | Stateful? | Why |
+|---|---|---|
+| bronze_ecommerce_events | ❌ No | Pure append via Auto Loader — read file, write rows, no state |
+| bronze_user_profiles_raw | ❌ No | Same — raw CDC records appended as-is |
+| silver_ecommerce_events | ✅ Yes | Watermark holds late-arriving events in state for up to 15 minutes |
+| silver_user_profiles | ✅ Yes | AUTO CDC (APPLY CHANGES INTO) maintains merge state internally |
+| silver_enriched_purchases | ⚠️ Partial | Watermark on event side only — profile side is a stateless batch snapshot read |
+| silver_session_summary | ❌ No | Materialized View — runs as a batch query, no streaming state |
+| gold_post_transaction_triggers | ❌ No | Pure streaming SELECT with CASE logic — no joins, no aggregations |
+| gold_user_targeting_profile | ❌ No | Materialized View — batch query, no streaming state |
+
+**Bronze memory profile:**
+Bronze has zero stateful operators — no joins, no aggregations, no watermarks. Memory
+concerns for Bronze are operational rather than computational:
+- **Small file accumulation** — one CSV ingested every 10 seconds produces thousands of
+  tiny Delta files over time, degrading read performance. Mitigate with periodic `OPTIMIZE`.
+- **Auto Loader checkpoint growth** — file tracking metadata grows as files accumulate.
+  Manageable but monitor Volume size in long-running pipelines.
+- **Unbounded table growth** — Bronze keeps all raw rows including dupes. Set Delta
+  retention policies and run `VACUUM` to reclaim storage:
+
+```sql
+ALTER TABLE ius_unity_prod.sandbox.bronze_ecommerce_events
+SET TBLPROPERTIES (
+  'delta.logRetentionDuration'        = 'interval 7 days',
+  'delta.deletedFileRetentionDuration' = 'interval 7 days'
+);
+OPTIMIZE ius_unity_prod.sandbox.bronze_ecommerce_events;
+VACUUM  ius_unity_prod.sandbox.bronze_ecommerce_events;
+```
+
+**Where actual memory pressure lives:**
+The real state burden is in Silver — the 15-minute watermark on `silver_ecommerce_events`
+buffers unmatched events in executor memory, and the stream-static join reads the full
+`silver_user_profiles` snapshot every microbatch. At 200 synthetic users this is trivial.
+At Fluent's scale of 200M profiles, the static side would need to be partitioned by
+`user_id` hash or moved to a feature store to avoid full table scans per microbatch.
+
 **Why session windows instead of tumbling time windows?**
 A tumbling 1-hour window would split a single user session across window boundaries.
 Session-based aggregation (GROUP BY session_id) correctly captures the complete funnel
