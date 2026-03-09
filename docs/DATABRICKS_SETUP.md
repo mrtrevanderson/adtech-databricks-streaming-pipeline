@@ -125,32 +125,66 @@ LIMIT 10
 
 1. In the left sidebar, click **Jobs & Pipelines**
 2. Click **Create ETL Pipeline**
-3. Fill in the settings:
+3. Fill in each section as follows:
 
-**General**
-- **Pipeline name:** `acme_ad_events_pipeline`
-- **Pipeline mode:** Triggered (runs on demand — good for development)
+---
+
+**Pipeline name**
+- Enter: `acme_ad_events_pipeline`
+
+---
+
+**Serverless**
+- Check this box if it is available in your workspace region
+- Serverless lets Databricks manage compute automatically — no cluster config needed
+- If the checkbox is greyed out, your workspace or region doesn't support it yet — leave it unchecked and configure a cluster policy below
+
+---
+
+**Product edition**
+Choose based on what your workspace has licensed:
+
+| Edition | What it unlocks | Use this pipeline? |
+|---|---|---|
+| **Core** | Basic streaming tables, Auto Loader | ⚠️ Partial — AUTO CDC won't work |
+| **Pro** | Adds change data capture (AUTO CDC) | ✅ Minimum recommended |
+| **Advanced** | Adds enhanced autoscaling, observability | ✅ Best option if available |
+
+Select **Advanced** if available, otherwise **Pro**. AUTO CDC is required for `silver_user_profiles` — the pipeline will fail on Core edition.
+
+---
+
+**Pipeline mode**
+- Select **Triggered**
+- Triggered runs the pipeline once on demand and stops — ideal for development and batch workloads
+- Continuous keeps the pipeline running permanently, processing new files as they arrive — use this in production once you're ready
+
+---
 
 **Source code** — add all three files in order:
 - Click **Add source code**
-- Browse to: `Repos/adtech-databricks-streaming-pipeline/pipeline/01_bronze_ingestion.sql`
+- Browse to: `pipeline/01_bronze_ingestion.sql`
 - Click **Add source code** again
-- Browse to: `Repos/adtech-databricks-streaming-pipeline/pipeline/02_silver_transforms.sql`
+- Browse to: `pipeline/02_silver_transforms.sql`
 - Click **Add source code** again
-- Browse to: `Repos/adtech-databricks-streaming-pipeline/pipeline/03_gold_ad_targeting.sql`
+- Browse to: `pipeline/03_gold_ad_targeting.sql`
+
+---
 
 **Destination**
 - **Catalog:** `ius_unity_prod`
 - **Target schema:** `sandbox`
 
-**Compute**
-- Leave as default (Databricks manages pipeline compute automatically)
-- Or enable **Serverless** if available in your workspace region
+---
 
-**Advanced (optional)**
-- Add configuration key: `pipelines.enableTrackHistory` = `true`
+**Cluster policy**
+- If Serverless is enabled, this section is hidden — skip it
+- If Serverless is not available, select your org's standard policy or **Unrestricted**
+- Leave worker/driver types as default unless your org requires specific node types
 
-5. Click **Create**
+---
+
+4. Click **Create**
 
 ---
 
