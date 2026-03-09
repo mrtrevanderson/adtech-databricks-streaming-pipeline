@@ -23,12 +23,9 @@
 -- them here makes the dupe rate visible in the Lakeflow pipeline UI.
 -- High dupe rates (>10%) may indicate an upstream retry storm or SDK bug.
 CREATE OR REFRESH STREAMING TABLE silver_ecommerce_events
-  CONSTRAINT duplicate_event_id_warning
-    EXPECT (event_id IS NOT NULL) ON VIOLATION WARN
   COMMENT "Cleaned and consent-validated e-commerce events.
            Watermark set to 15 minutes to tolerate late mobile SDK events.
-           Rows failing quality checks are dropped and logged.
-           WARN constraint tracks dupe rate -- high dupes (>10%) may indicate upstream retry storm."
+           Rows failing quality checks are dropped and logged."
   TBLPROPERTIES (
     "quality"                    = "silver",
     "delta.enableChangeDataFeed" = "true"
