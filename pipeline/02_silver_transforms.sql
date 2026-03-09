@@ -79,7 +79,8 @@ FROM STREAM(LIVE.bronze_user_profiles_raw)
 KEYS (user_id)
 APPLY AS DELETE WHEN operation = 'DELETE'
 SEQUENCE BY updated_at
-COLUMNS * EXCEPT (operation, updated_at, _ingest_timestamp, _source_file)
+-- Keep updated_at so it can be used as the watermark in the stream-stream join downstream
+COLUMNS * EXCEPT (operation, _ingest_timestamp, _source_file)
 STORED AS SCD TYPE 1;
 
 
@@ -127,7 +128,7 @@ SELECT
 FROM STREAM(LIVE.silver_ecommerce_events)
     WATERMARK event_timestamp DELAY OF INTERVAL 15 MINUTES AS e
 JOIN STREAM(LIVE.silver_user_profiles)
-    WATERMARK _change_timestamp DELAY OF INTERVAL 30 MINUTES AS p
+    WATERMARK updated_at DELAY OF INTERVAL 30 MINUTES AS p
   ON e.user_id = p.user_id
 WHERE e.event_type = 'purchase'
   AND e.user_id IS NOT NULL;
