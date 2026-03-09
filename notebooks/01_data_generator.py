@@ -19,6 +19,7 @@ import random
 import time
 import io
 from datetime import datetime, timezone, timedelta
+import time as _time
 from pyspark.sql import Row
 
 # ---------------------------------------------------------------------------
@@ -26,6 +27,10 @@ from pyspark.sql import Row
 # ---------------------------------------------------------------------------
 EVENTS_PATH   = "/Volumes/ius_unity_prod/sandbox/ecommerce_events/"
 PROFILES_PATH = "/Volumes/ius_unity_prod/sandbox/user_profiles/"
+
+# Unique run ID based on timestamp -- ensures every run produces new file paths
+# so Auto Loader always detects them as new files
+RUN_ID = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 NUM_BATCHES   = 10
 BATCH_DELAY_S = 5
 
@@ -237,7 +242,7 @@ for batch_num in range(NUM_BATCHES):
     all_events.extend(dupes)
     random.shuffle(all_events)
 
-    n = write_csv_to_volume(all_events, EVENT_COLUMNS, EVENTS_PATH, f"batch_{batch_num:04d}")
+    n = write_csv_to_volume(all_events, EVENT_COLUMNS, EVENTS_PATH, f"run_{RUN_ID}_batch_{batch_num:04d}")
     print(f"  Events written: {n} ({len(dupes)} dupes injected)")
 
     # Every other batch, send profile updates
@@ -245,7 +250,7 @@ for batch_num in range(NUM_BATCHES):
         sample_users  = random.sample(USERS, k=20)
         profiles      = [generate_profile(u, "INSERT") for u in sample_users[:10]]
         profiles     += [generate_profile(u, "UPDATE") for u in sample_users[10:]]
-        m = write_csv_to_volume(profiles, PROFILE_COLUMNS, PROFILES_PATH, f"profiles_{batch_num:04d}")
+        m = write_csv_to_volume(profiles, PROFILE_COLUMNS, PROFILES_PATH, f"run_{RUN_ID}_profiles_{batch_num:04d}")
         print(f"  Profiles written: {m} (10 INSERTs, 10 UPDATEs)")
 
     if batch_num < NUM_BATCHES - 1:
