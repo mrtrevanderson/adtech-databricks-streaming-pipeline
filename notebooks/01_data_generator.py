@@ -217,13 +217,12 @@ PROFILE_COLUMNS = [
 ]
 
 def write_csv_to_volume(rows, columns, path, filename):
-    df = spark.createDataFrame([{c: str(r.get(c, "")) for c in columns} for r in rows])
-    df = df.select(columns)  # enforce column order
-    (df.coalesce(1)
-       .write
-       .mode("overwrite")
-       .option("header", True)
-       .csv(f"{path}{filename}/"))
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    # Write a single clean .csv file using dbutils — no Spark subdirectories or _SUCCESS files
+    dbutils.fs.put(f"{path}{filename}.csv", output.getvalue(), overwrite=True)
     return len(rows)
 
 
