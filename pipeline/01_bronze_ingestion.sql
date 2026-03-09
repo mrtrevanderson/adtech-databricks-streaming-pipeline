@@ -44,7 +44,7 @@ FROM STREAM read_files(
     format                        => 'csv',
     header                        => true,
     -- MODE 1: schema hints + evolution (active)
-    cloudFiles.schemaHints        => 'event_id STRING, event_timestamp TIMESTAMP, product_price DOUBLE, quantity INT, consent_flag BOOLEAN',
+    schemaHints => 'event_id STRING, event_timestamp TIMESTAMP, product_price DOUBLE, quantity INT, consent_flag BOOLEAN',
     schemaEvolutionMode           => 'addNewColumns'
 
     -- MODE 2: explicit schema (strict, no evolution -- uncomment to use)
@@ -90,7 +90,7 @@ FROM STREAM read_files(
     format                        => 'csv',
     header                        => true,
     -- MODE 1: schema hints + evolution (active)
-    cloudFiles.schemaHints        => 'user_id STRING, lifetime_value_usd DOUBLE, total_orders INT, consent_flag BOOLEAN, updated_at TIMESTAMP',
+    schemaHints => 'user_id STRING, lifetime_value_usd DOUBLE, total_orders INT, consent_flag BOOLEAN, updated_at TIMESTAMP',
     schemaEvolutionMode           => 'addNewColumns'
 
     -- MODE 2: explicit schema (strict, no evolution -- uncomment to use)
