@@ -40,8 +40,7 @@ Volumes are the recommended way to land files for Auto Loader in Unity Catalog.
 -- Create catalog
 CREATE CATALOG IF NOT EXISTS ius_unity_prod;
 
--- Create schemas
-CREATE SCHEMA IF NOT EXISTS ius_unity_prod.sandbox;
+-- Create schema
 CREATE SCHEMA IF NOT EXISTS ius_unity_prod.sandbox;
 
 -- Create volumes for Auto Loader landing zones
@@ -111,18 +110,22 @@ The notebook will:
 - Generate user profile CSV files with INSERT/UPDATE operations → `ius_unity_prod.sandbox.user_profiles`
 
 Verify data landed:
-```python
-display(spark.read.csv("/Volumes/ius_unity_prod/sandbox/ecommerce_events/", header=True))
+```sql
+SELECT * FROM read_files(
+    '/Volumes/ius_unity_prod/sandbox/ecommerce_events/',
+    format => 'csv',
+    header => true
+)
+LIMIT 10
 ```
 
 ---
 
 ## Step 5: Create the Lakeflow Pipeline
 
-1. In the left sidebar, click **Workflows**
-2. Click the **Pipelines** tab
-3. Click **Create pipeline**
-4. Fill in the settings:
+1. In the left sidebar, click **Jobs & Pipelines**
+2. Click **Create ETL Pipeline**
+3. Fill in the settings:
 
 **General**
 - **Pipeline name:** `acme_ad_events_pipeline`
