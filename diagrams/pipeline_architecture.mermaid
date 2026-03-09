@@ -6,48 +6,48 @@ flowchart TD
         UP["CSV: user_profiles\nConsumer identity - attributes - loyalty tier - CDC ops"]
     end
 
-    subgraph INGEST["INGESTION - Auto Loader (Python)"]
-        AL1["cloudFiles - CSV\nSchema declared - header=true\nschemaEvolutionMode: addNewColumns"]
-        AL2["cloudFiles - CSV\nSchema declared - header=true\nCDC operation column preserved"]
+    subgraph INGEST["INGESTION - Auto Loader (SQL)"]
+        AL1["read_files() + STREAM\nSchema hints - schemaEvolutionMode\naddNewColumns"]
+        AL2["read_files() + STREAM\nSchema hints\nCDC operation column preserved"]
     end
 
-    subgraph BRONZE["BRONZE LAYER"]
-        BR1["bronze_ecommerce_events\n--------------------------\nRaw clickstream - append-only\n_ingest_timestamp - _source_file\nNo transforms applied"]
+    subgraph BRONZE["BRONZE LAYER - Stateless"]
+        BR1["bronze_ecommerce_events\n--------------------------\nRaw clickstream - append-only\n_ingest_timestamp - _source_file\nNo transforms - dupes preserved"]
         BR2["bronze_user_profiles_raw\n--------------------------\nRaw profile rows with operation\nINSERT - UPDATE - DELETE\nAll versions preserved"]
     end
 
     subgraph SILVER["SILVER LAYER"]
-        SV1["silver_ecommerce_events\n--------------------------\nTECHNIQUE: Watermarks\nWatermark: 15 min late tolerance\nConsent filter - null checks\nDerived: line_total - is_purchase"]
-        SV2["silver_user_profiles\n--------------------------\nTECHNIQUE: AUTO CDC\nAPPLY CHANGES INTO\nSCD Type 1 - keyed on user_id\nSequenced by updated_at"]
-        SV3["silver_enriched_purchases\n--------------------------\nTECHNIQUE: Stream-Stream Join\nPurchase events JOIN user profiles\nEnriches WHO bought WHAT\nTargeting signals attached"]
-        SV4["silver_session_summary\n--------------------------\nTECHNIQUE: Stateful Aggregation\nSession window per user+session\nFunnel counts - intent score\nConverted flag - revenue"]
+        SV1["silver_ecommerce_events\n--------------------------\nTECHNIQUE: Watermarks\nWatermark: 15 min late tolerance\nConsent filter - null checks\nDerived: line_total - is_purchase\nSTATEFUL: watermark state"]
+        SV2["silver_user_profiles\n--------------------------\nTECHNIQUE: AUTO CDC\nAPPLY CHANGES INTO\nSCD Type 1 - keyed on user_id\nSequenced by updated_at\nSTATEFUL: CDC merge state"]
+        SV3["silver_enriched_purchases\n--------------------------\nTECHNIQUE: Stream-Static Join\nSTREAM events + batch profile snapshot\nEnriches WHO bought WHAT\nProfile snapshot refreshed each microbatch\nPARTIAL STATE: watermark on event side only"]
+        SV4["silver_session_summary\n--------------------------\nTECHNIQUE: Materialized View\nBatch GROUP BY session_id\nFunnel counts - intent score\nConverted flag - revenue\nSTATELESS: no streaming state"]
     end
 
-    subgraph GOLD["GOLD LAYER"]
-        G1["gold_post_transaction_triggers\n--------------------------\nOne record per purchase\nRecommended ad categories\nSuggested bid price\nAd format by device\nFeed: Ad serving engine"]
-        G2["gold_user_targeting_profile\n--------------------------\nAggregate profile per user\nBehavioral targeting tier\nCategory affinity\nConversion rate - LTV\nFeed: ML audience model"]
+    subgraph GOLD["GOLD LAYER - Stateless"]
+        G1["gold_post_transaction_triggers\n--------------------------\nSTREAMING TABLE\nOne record per purchase\nAffinity-based offer recommendation\nSuggested bid price by loyalty tier\npipeline_latency_sec tracked\nFeed: Ad serving engine / Redis"]
+        G2["gold_user_targeting_profile\n--------------------------\nMATERIALIZED VIEW\nAggregate profile per user\nBehavioral targeting tier\nCategory affinity - LTV\nConversion rate - intent score\nFeed: ML audience model"]
     end
 
     subgraph CONSUMERS["DOWNSTREAM CONSUMERS"]
-        D1["Post-Transaction Ad Server\nServes personalized ad immediately after purchase"]
-        D2["ML Audience Model\nRefreshes propensity scores and identity graph nightly"]
-        D3["Campaign Reporting\nCTR - CVR - revenue by campaign and targeting tier"]
+        D1["Post-Transaction Ad Server\nRedis lookup by order_id < 1ms\nOffer pre-computed by pipeline"]
+        D2["ML Audience Model\nRefreshes propensity scores nightly"]
+        D3["Campaign Reporting\nCTR - CVR - revenue by tier"]
     end
 
     EV --> AL1
     UP --> AL2
-    AL1 -->|"Structured Streaming\nexactly-once via checkpoint"| BR1
-    AL2 -->|"Structured Streaming\nexactly-once via checkpoint"| BR2
+    AL1 -->|"read_files() SQL\nexactly-once via checkpoint"| BR1
+    AL2 -->|"read_files() SQL\nexactly-once via checkpoint"| BR2
 
     BR1 -->|"STREAM read\nwatermark + consent filter"| SV1
     BR2 -->|"APPLY CHANGES INTO\nAUTO CDC merge"| SV2
 
-    SV1 -->|"Stream-stream join\npurchase events only"| SV3
-    SV2 -->|"Stream-stream join\nprofile enrichment"| SV3
-    SV1 -->|"Stateful GROUP BY\nsession window"| SV4
+    SV1 -->|"STREAM events\nwatermark 15 min"| SV3
+    SV2 -->|"Batch snapshot\nno STREAM keyword"| SV3
+    SV1 -->|"Batch GROUP BY\nsession_id"| SV4
 
-    SV3 -->|"Materialized View"| G1
-    SV4 -->|"Materialized View"| G2
+    SV3 -->|"STREAM read\nstateless SELECT + CASE"| G1
+    SV4 -->|"Batch read\nMaterialized View"| G2
 
     G1 --> D1
     G1 --> D3
