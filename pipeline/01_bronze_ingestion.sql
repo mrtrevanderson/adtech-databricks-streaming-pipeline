@@ -51,7 +51,6 @@ FROM STREAM read_files(
         ip_hash         STRING
     ',
     -- Add new columns automatically if upstream adds fields
-    schemaEvolutionMode => 'addNewColumns'
 );
 
 
@@ -92,5 +91,4 @@ FROM STREAM read_files(
         operation               STRING      NOT NULL,
         updated_at              TIMESTAMP   NOT NULL
     ',
-    schemaEvolutionMode => 'addNewColumns'
 );
