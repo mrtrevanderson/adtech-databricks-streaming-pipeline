@@ -43,28 +43,28 @@ FROM STREAM read_files(
     '/Volumes/ius_unity_prod/sandbox/ecommerce_events/',
     format                        => 'csv',
     header                        => true,
-    -- MODE 1: schema hints + evolution (uncomment to use)
-    -- cloudFiles.schemaHints     => 'event_id STRING, event_timestamp TIMESTAMP, product_price DOUBLE, quantity INT, consent_flag BOOLEAN',
-    -- schemaEvolutionMode        => 'addNewColumns',
+    -- MODE 1: schema hints + evolution (active)
+    cloudFiles.schemaHints        => 'event_id STRING, event_timestamp TIMESTAMP, product_price DOUBLE, quantity INT, consent_flag BOOLEAN',
+    schemaEvolutionMode           => 'addNewColumns'
 
-    -- MODE 2: explicit schema (strict, no evolution)
-    schema => '
-        event_id        STRING      NOT NULL,
-        event_timestamp TIMESTAMP   NOT NULL,
-        session_id      STRING      NOT NULL,
-        user_id         STRING,
-        event_type      STRING      NOT NULL,
-        page_url        STRING,
-        product_id      STRING,
-        product_category STRING,
-        product_price   DOUBLE,
-        quantity        INT,
-        order_id        STRING,
-        consent_flag    BOOLEAN     NOT NULL,
-        device_type     STRING,
-        geo_region      STRING,
-        ip_hash         STRING
-    '
+    -- MODE 2: explicit schema (strict, no evolution -- uncomment to use)
+    -- schema => '
+    --     event_id        STRING      NOT NULL,
+    --     event_timestamp TIMESTAMP   NOT NULL,
+    --     session_id      STRING      NOT NULL,
+    --     user_id         STRING,
+    --     event_type      STRING      NOT NULL,
+    --     page_url        STRING,
+    --     product_id      STRING,
+    --     product_category STRING,
+    --     product_price   DOUBLE,
+    --     quantity        INT,
+    --     order_id        STRING,
+    --     consent_flag    BOOLEAN     NOT NULL,
+    --     device_type     STRING,
+    --     geo_region      STRING,
+    --     ip_hash         STRING
+    -- '
 );
 
 
@@ -89,25 +89,25 @@ FROM STREAM read_files(
     '/Volumes/ius_unity_prod/sandbox/user_profiles/',
     format                        => 'csv',
     header                        => true,
-    -- MODE 1: schema hints + evolution (uncomment to use)
-    -- cloudFiles.schemaHints     => 'user_id STRING, lifetime_value_usd DOUBLE, total_orders INT, consent_flag BOOLEAN, updated_at TIMESTAMP',
-    -- schemaEvolutionMode        => 'addNewColumns',
+    -- MODE 1: schema hints + evolution (active)
+    cloudFiles.schemaHints        => 'user_id STRING, lifetime_value_usd DOUBLE, total_orders INT, consent_flag BOOLEAN, updated_at TIMESTAMP',
+    schemaEvolutionMode           => 'addNewColumns'
 
-    -- MODE 2: explicit schema (strict, no evolution)
-    schema => '
-        user_id                 STRING      NOT NULL,
-        email_hash              STRING,
-        age_band                STRING,
-        gender                  STRING,
-        income_band             STRING,
-        interests               STRING,
-        loyalty_tier            STRING,
-        lifetime_value_usd      DOUBLE,
-        preferred_categories    STRING,
-        last_purchase_category  STRING,
-        total_orders            INT,
-        consent_flag            BOOLEAN     NOT NULL,
-        operation               STRING      NOT NULL,
-        updated_at              TIMESTAMP   NOT NULL
-    '
+    -- MODE 2: explicit schema (strict, no evolution -- uncomment to use)
+    -- schema => '
+    --     user_id                 STRING      NOT NULL,
+    --     email_hash              STRING,
+    --     age_band                STRING,
+    --     gender                  STRING,
+    --     income_band             STRING,
+    --     interests               STRING,
+    --     loyalty_tier            STRING,
+    --     lifetime_value_usd      DOUBLE,
+    --     preferred_categories    STRING,
+    --     last_purchase_category  STRING,
+    --     total_orders            INT,
+    --     consent_flag            BOOLEAN     NOT NULL,
+    --     operation               STRING      NOT NULL,
+    --     updated_at              TIMESTAMP   NOT NULL
+    -- '
 );
