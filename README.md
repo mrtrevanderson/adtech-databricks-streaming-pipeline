@@ -18,7 +18,7 @@ to serve them before they leave the confirmation page.
 
 This pipeline solves that by:
 1. Streaming every user interaction on the e-commerce site in real time
-2. Identifying the user and matching them to their first-party profile via a stream-stream join
+2. Identifying the user and matching them to their first-party profile via a stream-static join
 3. Detecting the purchase event and generating a targeting record immediately
 4. Maintaining a rolling behavioral profile for ML model refreshes
 
@@ -34,7 +34,7 @@ a distinct Spark Structured Streaming technique:
 | Auto Loader (CSV) | Bronze | Incremental file ingestion with schema declaration |
 | Watermarks | silver_ecommerce_events | Tolerating late-arriving mobile events |
 | AUTO CDC | silver_user_profiles | Merging INSERT/UPDATE/DELETE into a current-state table |
-| Stream-Stream Join | silver_enriched_purchases | Enriching events with profile data in real time |
+| Stream-Static Join | silver_enriched_purchases | Streaming events joined to a batch profile snapshot |
 | Stateful Session Aggregation | silver_session_summary | Building behavioral session windows |
 
 ---
@@ -59,7 +59,7 @@ silver_ecommerce_events     silver_user_profiles
 (watermark + consent filter)  (AUTO CDC - SCD Type 1)
     |           |                   |
     |           +-------------------+
-    |           | Stream-Stream Join
+    |           | Stream-Static Join
     |           v
     |    silver_enriched_purchases
     |    (purchase + profile merged)
@@ -90,8 +90,10 @@ adtech-databricks-streaming-pipeline/
 │   ├── 03_gold_ad_targeting.sql      # Post-transaction triggers + user targeting profiles
 │   └── pipeline_config.json          # Databricks Lakeflow pipeline configuration
 ├── notebooks/
-│   ├── 01_data_generator.py          # Synthetic e-commerce event + profile data generator
-│   └── 02_validation_monitoring.py   # Layer-by-layer validation and monitoring queries
+│   ├── 01_data_generator.py          # Synthetic e-commerce event + profile data generator (batch mode)
+│   ├── 02_validation_monitoring.py   # Layer-by-layer validation, monitoring, and dupe rate queries
+│   ├── 03_cleanup.sql                # Drop all pipeline tables (use before Full Refresh or schema changes)
+│   └── 04_continuous_data_generator.py  # Continuous data generator with configurable interval for testing continuous mode
 ├── sample_data/
 │   ├── ecommerce_events_sample.csv   # Sample clickstream events (reference schema)
 │   └── user_profiles_sample.csv      # Sample user profiles with CDC operations
@@ -133,8 +135,14 @@ Workspace -> Repos -> Add Repo -> paste your GitHub URL
 
 ### 3. Generate sample data
 
+**Batch mode (triggered pipeline):**
 Open `notebooks/01_data_generator.py` and run all cells.
 This writes 10 batches of synthetic CSV events and profile updates to the volumes.
+
+**Continuous mode:**
+Open `notebooks/04_continuous_data_generator.py`. Set `BATCH_INTERVAL_S` (default: 10 seconds)
+and `MAX_BATCHES` (0 = run forever). Run alongside the pipeline to observe real-time ingestion.
+Interrupt the kernel to stop.
 
 ### 4. Create the pipeline
 
@@ -165,15 +173,31 @@ Open `notebooks/02_validation_monitoring.py` and run each cell to verify:
 Auto Loader's `cloudFiles` format is only available via the Python/Scala DataFrame API.
 Everything else is expressed in SQL to keep transformations readable and easy to maintain.
 
-**Why a stream-stream join instead of a stream-static join?**
-User profiles update in real time (new purchases, consent changes, loyalty tier upgrades).
-A stream-static join would miss profile updates that arrive after the pipeline starts.
-The stream-stream join ensures every purchase event is enriched with the most current profile.
+**Why a stream-static join instead of a stream-stream join?**
+`silver_user_profiles` is built via AUTO CDC (`APPLY CHANGES INTO`) which writes MERGE
+commits to the underlying Delta table. Spark Structured Streaming rejects non-append
+sources, so streaming from `silver_user_profiles` fails. The fix is a stream-static join:
+stream `silver_ecommerce_events` (append-only), batch-lookup `silver_user_profiles`.
+Spark reads the latest profile snapshot each microbatch so loyalty tier, LTV, and
+interests always reflect the most recent values without watermark overhead on the profile side.
 
 **Why SCD Type 1 for user profiles?**
 The ad targeting use case needs the current state of a user's profile, not history.
 SCD Type 1 (overwrite on update) keeps the table small and query-fast.
 If profile history is needed (for model training audits), add SCD Type 2 as a separate table.
+
+**Why is gold_post_transaction_triggers a Streaming Table and gold_user_targeting_profile a Materialized View?**
+`gold_post_transaction_triggers` needs low latency — offers must be available within seconds
+of purchase for ad serving. It contains no aggregations (just CASE-based SELECT), so
+append-only streaming mode works fine. `gold_user_targeting_profile` uses COUNT(DISTINCT)
+and COLLECT_SET which require update/complete output mode — not supported in streaming.
+Materialized View runs as a batch query with no output mode restriction.
+
+**Measured pipeline latency:**
+In continuous mode, `ingest_to_gold_sec` (Auto Loader pickup → gold write) is consistently
+~11 seconds. For sub-second ad serving, the gold table feeds a low-latency key-value store
+(e.g. Redis) keyed by `order_id` with a 30-minute TTL. The ad server does a Redis lookup
+in <1ms rather than querying the Delta table directly.
 
 **Why session windows instead of tumbling time windows?**
 A tumbling 1-hour window would split a single user session across window boundaries.
