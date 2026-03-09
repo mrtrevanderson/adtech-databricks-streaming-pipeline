@@ -89,13 +89,20 @@ STORED AS SCD TYPE 1;
 
 
 -- -----------------------------------------------------------------------------
--- TECHNIQUE 3: Stream-Stream Join
--- Enrich purchase events with the buyer's profile attributes in real time.
+-- TECHNIQUE 3: Stream-Static Join
+-- Enrich purchase events with the buyer's latest profile attributes.
+-- silver_user_profiles is built via AUTO CDC (APPLY CHANGES INTO) which writes
+-- MERGE commits -- making it a non-append source that cannot be streamed from.
+-- Solution: stream events, batch-lookup the profile table (stream-static join).
+-- Spark always reads the latest snapshot of the static side at microbatch time,
+-- so profile updates are picked up automatically without watermark overhead.
 -- -----------------------------------------------------------------------------
 CREATE OR REFRESH STREAMING TABLE silver_enriched_purchases
-  COMMENT "Purchase events enriched with real-time user profile attributes.
-           Stream-stream join between silver_ecommerce_events and silver_user_profiles.
-           WATERMARK on both sides bounds state and prevents OOM."
+  COMMENT "Purchase events enriched with latest user profile attributes.
+           Stream-static join: streams silver_ecommerce_events (append-only),
+           batch-lookups silver_user_profiles (AUTO CDC / MERGE writes).
+           Profile snapshot is refreshed each microbatch so loyalty tier,
+           interests, and LTV always reflect the most recent known values."
   TBLPROPERTIES (
     "quality" = "silver"
   )
@@ -126,13 +133,9 @@ SELECT
     (p.loyalty_tier IN ('gold', 'platinum'))    AS is_high_value_customer,
     (p.lifetime_value_usd > 1000)               AS is_repeat_buyer,
     (p.total_orders > 5)                        AS is_loyal_shopper
--- TECHNIQUE: WATERMARK on both sides of a stream-stream join.
--- Required by Spark to bound state on each side of the join.
--- Without it the engine has no way to know when to expire unmatched rows.
 FROM STREAM(LIVE.silver_ecommerce_events)
     WATERMARK event_timestamp DELAY OF INTERVAL 15 MINUTES AS e
-JOIN STREAM(LIVE.silver_user_profiles)
-    WATERMARK updated_at DELAY OF INTERVAL 30 MINUTES AS p
+JOIN LIVE.silver_user_profiles AS p
   ON e.user_id = p.user_id
 WHERE e.event_type = 'purchase'
   AND e.user_id IS NOT NULL;
