@@ -128,10 +128,10 @@ targeting_summary = spark.sql("""
         COUNT(*)                                AS purchase_events,
         ROUND(AVG(suggested_max_bid_usd), 2)    AS avg_bid_usd,
         ROUND(AVG(product_price), 2)            AS avg_order_value,
-        recommended_ad_format,
+        affinity_category,
         COUNT(DISTINCT user_id)                 AS unique_buyers
     FROM ius_unity_prod.sandbox.gold_post_transaction_triggers
-    GROUP BY loyalty_tier, recommended_ad_format
+    GROUP BY loyalty_tier, affinity_category
     ORDER BY avg_bid_usd DESC
 """)
 display(targeting_summary)
