@@ -150,18 +150,23 @@ SELECT
     device_type,
     geo_region,
     event_date,
-    MIN(event_timestamp)                                        AS session_start,
-    MAX(event_timestamp)                                        AS session_end,
+    -- session_window bounds emit exactly when session goes quiet for 30 min.
+    -- This is what allows COUNT(DISTINCT) and COLLECT_SET -- Spark knows the
+    -- window is closed and can release state, so exact distinct counts are safe.
+    session_window(event_timestamp, '30 minutes').start        AS session_start,
+    session_window(event_timestamp, '30 minutes').end          AS session_end,
     ROUND(
-        (UNIX_TIMESTAMP(MAX(event_timestamp)) -
-         UNIX_TIMESTAMP(MIN(event_timestamp))) / 60.0, 2)      AS session_duration_min,
+        (UNIX_TIMESTAMP(session_window(event_timestamp, '30 minutes').end) -
+         UNIX_TIMESTAMP(session_window(event_timestamp, '30 minutes').start)) / 60.0, 2)
+                                                               AS session_duration_min,
     COUNT(*)                                                    AS total_events,
     COUNT(CASE WHEN event_type = 'page_view'      THEN 1 END)  AS page_views,
     COUNT(CASE WHEN event_type = 'add_to_cart'    THEN 1 END)  AS add_to_carts,
     COUNT(CASE WHEN event_type = 'checkout_start' THEN 1 END)  AS checkout_starts,
     COUNT(CASE WHEN event_type = 'purchase'       THEN 1 END)  AS purchases,
-    APPROX_COUNT_DISTINCT(product_id)                           AS unique_products_viewed,
-    APPROX_COUNT_DISTINCT(product_category)                     AS categories_browsed,
+    -- Exact distinct counts -- allowed because session_window bounds the state
+    COUNT(DISTINCT product_id)                                  AS unique_products_viewed,
+    COLLECT_SET(product_category)                               AS categories_browsed,
     MAX(product_price)                                          AS max_product_price_viewed,
     (COUNT(CASE WHEN event_type = 'purchase' THEN 1 END) > 0)  AS converted,
     SUM(CASE WHEN event_type = 'purchase'
@@ -173,9 +178,12 @@ SELECT
         COUNT(CASE WHEN event_type = 'checkout_start' THEN 1 END) * 5  +
         COUNT(CASE WHEN event_type = 'purchase'       THEN 1 END) * 10,
     0)                                                          AS session_intent_score
--- TECHNIQUE: WATERMARK required for stateful GROUP BY aggregation.
--- Tells Spark when a session window is complete so it can emit and evict state.
+-- TECHNIQUE: session_window groups events into sessions bounded by 30 min of
+-- inactivity. Unlike a plain GROUP BY, this closes the window and emits when
+-- no new events arrive within the gap -- enabling exact COUNT(DISTINCT) and
+-- COLLECT_SET which require bounded state to work in streaming.
 FROM STREAM(LIVE.silver_ecommerce_events)
     WATERMARK event_timestamp DELAY OF INTERVAL 15 MINUTES
 GROUP BY
-    session_id, user_id, device_type, geo_region, event_date;
+    session_id, user_id, device_type, geo_region, event_date,
+    session_window(event_timestamp, '30 minutes');
