@@ -160,8 +160,8 @@ SELECT
     COUNT(CASE WHEN event_type = 'add_to_cart'    THEN 1 END)  AS add_to_carts,
     COUNT(CASE WHEN event_type = 'checkout_start' THEN 1 END)  AS checkout_starts,
     COUNT(CASE WHEN event_type = 'purchase'       THEN 1 END)  AS purchases,
-    COUNT(DISTINCT product_id)                                  AS unique_products_viewed,
-    COLLECT_SET(product_category)                               AS categories_browsed,
+    APPROX_COUNT_DISTINCT(product_id)                           AS unique_products_viewed,
+    APPROX_COUNT_DISTINCT(product_category)                     AS categories_browsed,
     MAX(product_price)                                          AS max_product_price_viewed,
     (COUNT(CASE WHEN event_type = 'purchase' THEN 1 END) > 0)  AS converted,
     SUM(CASE WHEN event_type = 'purchase'
