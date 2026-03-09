@@ -8,7 +8,18 @@
 --   - Schema inference and evolution
 --   - Support for CSV, JSON, Parquet, Avro, ORC
 --
--- No Python required. This replaces the old 01_bronze_ingestion.py.
+-- SCHEMA APPROACH:
+--   Two modes available -- comment/uncomment to switch:
+--
+--   MODE 1 (current): cloudFiles.schemaHints + schemaEvolutionMode=addNewColumns
+--     - Auto Loader infers schema but respects type hints for known columns
+--     - New columns in incoming files are automatically added to the table
+--     - Good for: testing schema evolution, early-stage pipelines, exploratory work
+--
+--   MODE 2: explicit schema => '...'
+--     - Strict type enforcement, no evolution allowed
+--     - Pipeline fails fast if upstream sends unexpected columns or types
+--     - Good for: production pipelines with a stable, contracted schema
 -- =============================================================================
 
 
@@ -30,10 +41,14 @@ SELECT
     _metadata.file_path             AS _source_file
 FROM STREAM read_files(
     '/Volumes/ius_unity_prod/sandbox/ecommerce_events/',
-    format          => 'csv',
-    header          => true,
-    -- Explicit schema prevents mismatched type inference across files
-    schema          => '
+    format                        => 'csv',
+    header                        => true,
+    -- MODE 1: schema hints + evolution (uncomment to use)
+    -- cloudFiles.schemaHints     => 'event_id STRING, event_timestamp TIMESTAMP, product_price DOUBLE, quantity INT, consent_flag BOOLEAN',
+    -- schemaEvolutionMode        => 'addNewColumns',
+
+    -- MODE 2: explicit schema (strict, no evolution)
+    schema => '
         event_id        STRING      NOT NULL,
         event_timestamp TIMESTAMP   NOT NULL,
         session_id      STRING      NOT NULL,
@@ -49,8 +64,7 @@ FROM STREAM read_files(
         device_type     STRING,
         geo_region      STRING,
         ip_hash         STRING
-    ',
-    -- Add new columns automatically if upstream adds fields
+    '
 );
 
 
@@ -73,9 +87,14 @@ SELECT
     _metadata.file_path             AS _source_file
 FROM STREAM read_files(
     '/Volumes/ius_unity_prod/sandbox/user_profiles/',
-    format          => 'csv',
-    header          => true,
-    schema          => '
+    format                        => 'csv',
+    header                        => true,
+    -- MODE 1: schema hints + evolution (uncomment to use)
+    -- cloudFiles.schemaHints     => 'user_id STRING, lifetime_value_usd DOUBLE, total_orders INT, consent_flag BOOLEAN, updated_at TIMESTAMP',
+    -- schemaEvolutionMode        => 'addNewColumns',
+
+    -- MODE 2: explicit schema (strict, no evolution)
+    schema => '
         user_id                 STRING      NOT NULL,
         email_hash              STRING,
         age_band                STRING,
@@ -90,5 +109,5 @@ FROM STREAM read_files(
         consent_flag            BOOLEAN     NOT NULL,
         operation               STRING      NOT NULL,
         updated_at              TIMESTAMP   NOT NULL
-    ',
+    '
 );
