@@ -1,16 +1,30 @@
 """
 LAYER 1: BRONZE - Auto Loader Ingestion (Python)
 =================================================
-Bronze is implemented in Python because Auto Loader (cloudFiles) is not
-available in SQL. All other layers are in SQL (see 02_silver_transforms.sql
-and 03_gold_ad_targeting.sql).
+Uses the current Lakeflow SDP API: pyspark.pipelines (replaces the old dlt module).
 
-Two sources are ingested:
-  1. ecommerce_events  -- CSV clickstream from e-commerce website
-  2. user_profiles     -- CSV consumer profile records (used for CDC in Silver)
+Key API changes from DLT -> Lakeflow SDP:
+  OLD:  import dlt
+        @dlt.table(...)
+        @dlt.expect_or_drop(...)
+        dlt.read_stream(...)
+
+  NEW:  from pyspark import pipelines as dp
+        @dp.table(...)                  # streaming tables
+        @dp.materialized_view(...)      # materialized views (new decorator)
+        @dp.expect_or_drop(...)
+        dp.read_stream(...)
+
+Bronze is implemented in Python because Auto Loader (cloudFiles) is not
+available in SQL. Silver and Gold are in SQL (02_silver_transforms.sql,
+03_gold_ad_targeting.sql).
+
+Two sources ingested:
+  1. ecommerce_events      -- CSV clickstream from e-commerce website
+  2. user_profiles_raw     -- CSV consumer profile records (feeds AUTO CDC in Silver)
 """
 
-import dlt
+from pyspark import pipelines as dp
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
     StructType, StructField,
@@ -20,59 +34,60 @@ from pyspark.sql.types import (
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
-EVENTS_PATH         = "/Volumes/acme_catalog/raw/ecommerce_events/"
-PROFILES_PATH       = "/Volumes/acme_catalog/raw/user_profiles/"
-EVENTS_SCHEMA_PATH  = "/Volumes/acme_catalog/raw/_schema_hints/events/"
-PROFILES_SCHEMA_PATH= "/Volumes/acme_catalog/raw/_schema_hints/profiles/"
+EVENTS_PATH          = "/Volumes/acme_catalog/raw/ecommerce_events/"
+PROFILES_PATH        = "/Volumes/acme_catalog/raw/user_profiles/"
+EVENTS_SCHEMA_PATH   = "/Volumes/acme_catalog/raw/_schema_hints/events/"
+PROFILES_SCHEMA_PATH = "/Volumes/acme_catalog/raw/_schema_hints/profiles/"
 
 # ---------------------------------------------------------------------------
-# SCHEMAS
+# SCHEMAS - declared explicitly for production reliability
 # ---------------------------------------------------------------------------
 ecommerce_event_schema = StructType([
-    StructField("event_id",          StringType(),    False),
-    StructField("event_timestamp",   TimestampType(), False),
-    StructField("session_id",        StringType(),    False),
-    StructField("user_id",           StringType(),    True),   # null = anonymous user
-    StructField("event_type",        StringType(),    False),  # page_view | add_to_cart | checkout_start | purchase
-    StructField("page_url",          StringType(),    True),
-    StructField("product_id",        StringType(),    True),
-    StructField("product_category",  StringType(),    True),
-    StructField("product_price",     DoubleType(),    True),
-    StructField("quantity",          IntegerType(),   True),
-    StructField("order_id",          StringType(),    True),   # only populated on purchase
-    StructField("consent_flag",      BooleanType(),   False),  # CCPA/GDPR consent
-    StructField("device_type",       StringType(),    True),
-    StructField("geo_region",        StringType(),    True),
-    StructField("ip_hash",           StringType(),    True),   # PII-safe hashed IP
+    StructField("event_id",         StringType(),    False),
+    StructField("event_timestamp",  TimestampType(), False),
+    StructField("session_id",       StringType(),    False),
+    StructField("user_id",          StringType(),    True),   # null = anonymous user
+    StructField("event_type",       StringType(),    False),  # page_view | add_to_cart | checkout_start | purchase
+    StructField("page_url",         StringType(),    True),
+    StructField("product_id",       StringType(),    True),
+    StructField("product_category", StringType(),    True),
+    StructField("product_price",    DoubleType(),    True),
+    StructField("quantity",         IntegerType(),   True),
+    StructField("order_id",         StringType(),    True),   # only populated on purchase
+    StructField("consent_flag",     BooleanType(),   False),  # CCPA/GDPR consent
+    StructField("device_type",      StringType(),    True),
+    StructField("geo_region",       StringType(),    True),
+    StructField("ip_hash",          StringType(),    True),   # PII-safe hashed IP
 ])
 
 user_profile_schema = StructType([
-    StructField("user_id",                  StringType(),  False),
-    StructField("email_hash",               StringType(),  True),
-    StructField("age_band",                 StringType(),  True),
-    StructField("gender",                   StringType(),  True),
-    StructField("income_band",              StringType(),  True),
-    StructField("interests",                StringType(),  True),   # comma-separated
-    StructField("loyalty_tier",             StringType(),  True),   # bronze | silver | gold | platinum
-    StructField("lifetime_value_usd",       DoubleType(),  True),
-    StructField("preferred_categories",     StringType(),  True),   # comma-separated
-    StructField("last_purchase_category",   StringType(),  True),
-    StructField("total_orders",             IntegerType(), True),
-    StructField("consent_flag",             BooleanType(), False),
-    StructField("operation",                StringType(),  False),  # INSERT | UPDATE | DELETE (CDC)
-    StructField("updated_at",               TimestampType(),False),
+    StructField("user_id",                StringType(),    False),
+    StructField("email_hash",             StringType(),    True),
+    StructField("age_band",               StringType(),    True),
+    StructField("gender",                 StringType(),    True),
+    StructField("income_band",            StringType(),    True),
+    StructField("interests",              StringType(),    True),  # comma-separated
+    StructField("loyalty_tier",           StringType(),    True),  # bronze|silver|gold|platinum
+    StructField("lifetime_value_usd",     DoubleType(),    True),
+    StructField("preferred_categories",   StringType(),    True),  # comma-separated
+    StructField("last_purchase_category", StringType(),    True),
+    StructField("total_orders",           IntegerType(),   True),
+    StructField("consent_flag",           BooleanType(),   False),
+    StructField("operation",              StringType(),    False), # INSERT | UPDATE | DELETE
+    StructField("updated_at",             TimestampType(), False),
 ])
+
 
 # ===========================================================================
 # BRONZE 1: E-commerce Clickstream Events
+# @dp.table creates a STREAMING TABLE (append-only, incremental ingestion)
 # ===========================================================================
-@dlt.table(
+@dp.table(
     name="bronze_ecommerce_events",
     comment="""
         Raw e-commerce clickstream events ingested via Auto Loader (CSV).
-        Captures every user interaction on the e-commerce site:
-        page views, add-to-cart, checkout starts, and purchases.
-        Append-only, no transformations applied.
+        Captures every user interaction: page_view, add_to_cart,
+        checkout_start, and purchase. Append-only, no transforms applied.
     """,
     table_properties={
         "quality": "bronze",
@@ -82,9 +97,10 @@ user_profile_schema = StructType([
 def bronze_ecommerce_events():
     """
     TECHNIQUE: Auto Loader with CSV + explicit schema
-    Auto Loader monitors the landing path for new CSV files and ingests them
+    cloudFiles monitors the landing path and ingests new CSV files
     incrementally with exactly-once guarantees via checkpointing.
-    Schema is declared explicitly to avoid inference errors on empty files.
+    schemaEvolutionMode=addNewColumns handles upstream schema changes
+    without failing the pipeline.
     """
     return (
         spark.readStream
@@ -102,14 +118,15 @@ def bronze_ecommerce_events():
 
 # ===========================================================================
 # BRONZE 2: User Profile Records (CDC source)
+# @dp.table creates a STREAMING TABLE preserving all raw CDC rows
 # ===========================================================================
-@dlt.table(
+@dp.table(
     name="bronze_user_profiles_raw",
     comment="""
         Raw user profile records ingested via Auto Loader (CSV).
-        Each row contains an operation column (INSERT/UPDATE/DELETE)
-        representing changes to the consumer identity/attribute store.
-        This raw table feeds the AUTO CDC flow in Silver.
+        Each row has an operation column (INSERT/UPDATE/DELETE) representing
+        changes to the consumer identity store.
+        Raw CDC rows are preserved here before the AUTO CDC merge in Silver.
     """,
     table_properties={
         "quality": "bronze",
@@ -120,7 +137,8 @@ def bronze_user_profiles_raw():
     """
     TECHNIQUE: Auto Loader as CDC source
     Profile updates arrive as full-row snapshots with an operation type.
-    The raw bronze table preserves all versions before CDC merge in Silver.
+    Bronze preserves all versions; Silver's AUTO CDC merges them into
+    a single current-state row per user.
     """
     return (
         spark.readStream
