@@ -24,8 +24,8 @@ from pyspark.sql import Row
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
-EVENTS_PATH   = "/Volumes/acme_catalog/raw/ecommerce_events/"
-PROFILES_PATH = "/Volumes/acme_catalog/raw/user_profiles/"
+EVENTS_PATH   = "/Volumes/ius_unity_prod/sandbox/ecommerce_events/"
+PROFILES_PATH = "/Volumes/ius_unity_prod/sandbox/user_profiles/"
 NUM_BATCHES   = 10
 BATCH_DELAY_S = 5
 

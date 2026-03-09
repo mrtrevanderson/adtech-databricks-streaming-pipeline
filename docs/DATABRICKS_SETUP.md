@@ -38,23 +38,23 @@ Volumes are the recommended way to land files for Auto Loader in Unity Catalog.
 
 ```sql
 -- Create catalog
-CREATE CATALOG IF NOT EXISTS acme_catalog;
+CREATE CATALOG IF NOT EXISTS ius_unity_prod;
 
 -- Create schemas
-CREATE SCHEMA IF NOT EXISTS acme_catalog.raw;
-CREATE SCHEMA IF NOT EXISTS acme_catalog.acme_ad_pipeline;
+CREATE SCHEMA IF NOT EXISTS ius_unity_prod.sandbox;
+CREATE SCHEMA IF NOT EXISTS ius_unity_prod.sandbox;
 
 -- Create volumes for Auto Loader landing zones
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw.ecommerce_events;
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw.user_profiles;
+CREATE VOLUME IF NOT EXISTS ius_unity_prod.sandbox.ecommerce_events;
+CREATE VOLUME IF NOT EXISTS ius_unity_prod.sandbox.user_profiles;
 
 -- Create volume for Auto Loader schema hints (inference cache)
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw._schema_hints;
+CREATE VOLUME IF NOT EXISTS ius_unity_prod.sandbox._schema_hints;
 ```
 
 Verify they were created:
 ```sql
-SHOW VOLUMES IN acme_catalog.raw;
+SHOW VOLUMES IN ius_unity_prod.sandbox;
 ```
 
 ---
@@ -107,12 +107,12 @@ This seeds your Volumes with synthetic CSV files for the pipeline to ingest.
 4. Click **Run all**
 
 The notebook will:
-- Generate 10 batches of e-commerce event CSV files → `acme_catalog.raw.ecommerce_events`
-- Generate user profile CSV files with INSERT/UPDATE operations → `acme_catalog.raw.user_profiles`
+- Generate 10 batches of e-commerce event CSV files → `ius_unity_prod.sandbox.ecommerce_events`
+- Generate user profile CSV files with INSERT/UPDATE operations → `ius_unity_prod.sandbox.user_profiles`
 
 Verify data landed:
 ```python
-display(spark.read.csv("/Volumes/acme_catalog/raw/ecommerce_events/", header=True))
+display(spark.read.csv("/Volumes/ius_unity_prod/sandbox/ecommerce_events/", header=True))
 ```
 
 ---
@@ -137,8 +137,8 @@ display(spark.read.csv("/Volumes/acme_catalog/raw/ecommerce_events/", header=Tru
 - Browse to: `Repos/adtech-databricks-streaming-pipeline/pipeline/03_gold_ad_targeting.sql`
 
 **Destination**
-- **Catalog:** `acme_catalog`
-- **Target schema:** `acme_ad_pipeline`
+- **Catalog:** `ius_unity_prod`
+- **Target schema:** `sandbox`
 
 **Compute**
 - Leave as default (Databricks manages pipeline compute automatically)
@@ -205,7 +205,7 @@ SELECT
     details:flow_name       AS flow_name,
     details:num_output_rows AS output_rows,
     details:dropped_records AS dropped_records
-FROM acme_catalog.acme_ad_pipeline.acme_ad_pipeline_events
+FROM ius_unity_prod.sandbox.sandbox_events
 WHERE event_type = 'flow_progress'
 ORDER BY timestamp DESC
 LIMIT 50;

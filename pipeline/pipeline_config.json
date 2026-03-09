@@ -1,8 +1,8 @@
 {
   "name": "acme_ad_events_pipeline",
   "description": "Acme Media post-transaction ad targeting pipeline. Ingests e-commerce clickstream and user profile data, builds session behavioral signals, and produces real-time ad targeting recommendations after purchase events.",
-  "catalog": "acme_catalog",
-  "target": "acme_ad_pipeline",
+  "catalog": "ius_unity_prod",
+  "target": "sandbox",
   "libraries": [
     {
       "file": {
@@ -23,8 +23,8 @@
   "configuration": {
     "pipelines.enableTrackHistory": "true",
     "spark.databricks.delta.preview.enabled": "true",
-    "events_path":   "/Volumes/acme_catalog/raw/ecommerce_events/",
-    "profiles_path": "/Volumes/acme_catalog/raw/user_profiles/"
+    "events_path":   "/Volumes/ius_unity_prod/sandbox/ecommerce_events/",
+    "profiles_path": "/Volumes/ius_unity_prod/sandbox/user_profiles/"
   },
   "clusters": [
     {
@@ -46,8 +46,8 @@
   "photon": true,
   "channel": "CURRENT",
   "event_log": {
-    "catalog": "acme_catalog",
-    "schema": "acme_ad_pipeline",
-    "name": "acme_ad_pipeline_events"
+    "catalog": "ius_unity_prod",
+    "schema": "sandbox",
+    "name": "sandbox_events"
   }
 }

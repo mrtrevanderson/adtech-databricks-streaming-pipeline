@@ -109,7 +109,7 @@ adtech-databricks-streaming-pipeline/
 | Databricks workspace | AWS, Azure, or GCP |
 | Unity Catalog enabled | Required for catalog.schema.table paths |
 | Lakeflow SDP (DLT) Advanced edition | Required for AUTO CDC |
-| `acme_catalog` catalog created | Or update catalog references in all files |
+| `ius_unity_prod` catalog created | Or update catalog references in all files |
 
 ---
 
@@ -118,13 +118,13 @@ adtech-databricks-streaming-pipeline/
 ### 1. Create catalog, schema, and volumes
 
 ```sql
-CREATE CATALOG IF NOT EXISTS acme_catalog;
-CREATE SCHEMA  IF NOT EXISTS acme_catalog.raw;
-CREATE SCHEMA  IF NOT EXISTS acme_catalog.acme_ad_pipeline;
+CREATE CATALOG IF NOT EXISTS ius_unity_prod;
+CREATE SCHEMA  IF NOT EXISTS ius_unity_prod.sandbox;
+CREATE SCHEMA  IF NOT EXISTS ius_unity_prod.sandbox;
 
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw.ecommerce_events;
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw.user_profiles;
-CREATE VOLUME IF NOT EXISTS acme_catalog.raw._schema_hints;
+CREATE VOLUME IF NOT EXISTS ius_unity_prod.sandbox.ecommerce_events;
+CREATE VOLUME IF NOT EXISTS ius_unity_prod.sandbox.user_profiles;
+CREATE VOLUME IF NOT EXISTS ius_unity_prod.sandbox._schema_hints;
 ```
 
 ### 2. Import repo into Databricks
@@ -142,7 +142,7 @@ Option A - UI:
 1. Workflows -> Pipelines -> Create Pipeline
 2. Name: `acme_ad_events_pipeline`
 3. Add source files in order: 01_bronze_ingestion.py, 02_silver_transforms.sql, 03_gold_ad_targeting.sql
-4. Set catalog: `acme_catalog`, target schema: `acme_ad_pipeline`
+4. Set catalog: `ius_unity_prod`, target schema: `sandbox`
 5. Click Start
 
 Option B - config file:

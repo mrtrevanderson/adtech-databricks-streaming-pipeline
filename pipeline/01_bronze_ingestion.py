@@ -34,10 +34,10 @@ from pyspark.sql.types import (
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
-EVENTS_PATH          = "/Volumes/acme_catalog/raw/ecommerce_events/"
-PROFILES_PATH        = "/Volumes/acme_catalog/raw/user_profiles/"
-EVENTS_SCHEMA_PATH   = "/Volumes/acme_catalog/raw/_schema_hints/events/"
-PROFILES_SCHEMA_PATH = "/Volumes/acme_catalog/raw/_schema_hints/profiles/"
+EVENTS_PATH          = "/Volumes/ius_unity_prod/sandbox/ecommerce_events/"
+PROFILES_PATH        = "/Volumes/ius_unity_prod/sandbox/user_profiles/"
+EVENTS_SCHEMA_PATH   = "/Volumes/ius_unity_prod/sandbox/_schema_hints/events/"
+PROFILES_SCHEMA_PATH = "/Volumes/ius_unity_prod/sandbox/_schema_hints/profiles/"
 
 # ---------------------------------------------------------------------------
 # SCHEMAS - declared explicitly for production reliability
