@@ -85,7 +85,7 @@ See `diagrams/pipeline_architecture.mermaid` for the full visual.
 ```
 adtech-databricks-streaming-pipeline/
 ├── pipeline/
-│   ├── 01_bronze_ingestion.py        # Auto Loader ingestion (Python - required for cloudFiles)
+│   ├── 01_bronze_ingestion.sql      # Auto Loader ingestion via read_files() SQL function (no Python needed)
 │   ├── 02_silver_transforms.sql      # Watermarks, AUTO CDC, stream-stream join, session agg
 │   ├── 03_gold_ad_targeting.sql      # Post-transaction triggers + user targeting profiles
 │   └── pipeline_config.json          # Databricks Lakeflow pipeline configuration
@@ -141,7 +141,7 @@ This writes 10 batches of synthetic CSV events and profile updates to the volume
 Option A - UI:
 1. Workflows -> Pipelines -> Create Pipeline
 2. Name: `acme_ad_events_pipeline`
-3. Add source files in order: 01_bronze_ingestion.py, 02_silver_transforms.sql, 03_gold_ad_targeting.sql
+3. Add source files in order: 01_bronze_ingestion.sql, 02_silver_transforms.sql, 03_gold_ad_targeting.sql
 4. Set catalog: `ius_unity_prod`, target schema: `sandbox`
 5. Click Start
 

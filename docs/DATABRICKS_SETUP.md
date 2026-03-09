@@ -130,7 +130,7 @@ display(spark.read.csv("/Volumes/ius_unity_prod/sandbox/ecommerce_events/", head
 
 **Source code** — add all three files in order:
 - Click **Add source code**
-- Browse to: `Repos/adtech-databricks-streaming-pipeline/pipeline/01_bronze_ingestion.py`
+- Browse to: `Repos/adtech-databricks-streaming-pipeline/pipeline/01_bronze_ingestion.sql`
 - Click **Add source code** again
 - Browse to: `Repos/adtech-databricks-streaming-pipeline/pipeline/02_silver_transforms.sql`
 - Click **Add source code** again
@@ -231,7 +231,7 @@ This demonstrates the incremental nature of Auto Loader and SDP — only new dat
 | Problem | Likely cause | Fix |
 |---|---|---|
 | Pipeline fails on bronze tables | Volumes don't exist | Re-run Step 1 SQL |
-| Schema mismatch error | CSV header doesn't match schema | Check sample_data/ CSVs match the schema in 01_bronze_ingestion.py |
+| Schema mismatch error | CSV header doesn't match schema | Check sample_data/ CSVs match the schema in 01_bronze_ingestion.sql |
 | AUTO CDC fails | SDP Advanced edition required | Check workspace edition under Admin Settings |
 | No rows in Silver | Consent filter dropping everything | Check consent_flag column in your CSV — must be `true` (lowercase string) |
 | Stream-stream join empty | No matching user_ids between events and profiles | Run the data generator for both sources before starting pipeline |

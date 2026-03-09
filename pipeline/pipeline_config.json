@@ -1,12 +1,12 @@
 {
   "name": "acme_ad_events_pipeline",
-  "description": "Acme Media post-transaction ad targeting pipeline. Ingests e-commerce clickstream and user profile data, builds session behavioral signals, and produces real-time ad targeting recommendations after purchase events.",
+  "description": "Acme Media post-transaction ad targeting pipeline. All layers implemented in SQL using Lakeflow SDP. Ingests e-commerce clickstream and user profile CSVs via read_files(), builds session behavioral signals, and produces real-time ad targeting recommendations after purchase events.",
   "catalog": "ius_unity_prod",
   "target": "sandbox",
   "libraries": [
     {
       "file": {
-        "path": "/Workspace/Repos/adtech-databricks-streaming-pipeline/pipeline/01_bronze_ingestion.py"
+        "path": "/Workspace/Repos/adtech-databricks-streaming-pipeline/pipeline/01_bronze_ingestion.sql"
       }
     },
     {
@@ -21,10 +21,7 @@
     }
   ],
   "configuration": {
-    "pipelines.enableTrackHistory": "true",
-    "spark.databricks.delta.preview.enabled": "true",
-    "events_path":   "/Volumes/ius_unity_prod/sandbox/ecommerce_events/",
-    "profiles_path": "/Volumes/ius_unity_prod/sandbox/user_profiles/"
+    "pipelines.enableTrackHistory": "true"
   },
   "clusters": [
     {
@@ -48,6 +45,6 @@
   "event_log": {
     "catalog": "ius_unity_prod",
     "schema": "sandbox",
-    "name": "sandbox_events"
+    "name": "sandbox_pipeline_events"
   }
 }
