@@ -152,3 +152,38 @@ behavioral_tiers = spark.sql("""
     ORDER BY avg_ltv DESC
 """)
 display(behavioral_tiers)
+
+# ---------------------------------------------------------------------------
+# DUPE RATE MONITORING
+# Tracks duplicate event_id rate in Bronze vs Silver.
+# Complements the WARN constraint on silver_ecommerce_events which surfaces
+# dupe counts in the Lakeflow pipeline UI.
+# Alert threshold: >10% dupe rate may indicate upstream retry storm or SDK bug.
+# ---------------------------------------------------------------------------
+dupe_rate = spark.sql("""
+    SELECT
+        'bronze' AS layer,
+        COUNT(*)                                                    AS total_rows,
+        COUNT(*) - COUNT(DISTINCT event_id)                         AS duplicate_rows,
+        ROUND((COUNT(*) - COUNT(DISTINCT event_id)) / COUNT(*) * 100, 2) AS dupe_pct
+    FROM ius_unity_prod.sandbox.bronze_ecommerce_events
+
+    UNION ALL
+
+    SELECT
+        'silver' AS layer,
+        COUNT(*)                                                    AS total_rows,
+        COUNT(*) - COUNT(DISTINCT event_id)                         AS duplicate_rows,
+        ROUND((COUNT(*) - COUNT(DISTINCT event_id)) / COUNT(*) * 100, 2) AS dupe_pct
+    FROM ius_unity_prod.sandbox.silver_ecommerce_events
+    ORDER BY layer
+""")
+display(dupe_rate)
+
+# Alert if dupe rate exceeds 10%
+dupe_rows = dupe_rate.collect()
+for row in dupe_rows:
+    if row['dupe_pct'] > 10.0:
+        print(f"⚠️  ALERT: {row['layer']} dupe rate is {row['dupe_pct']}% -- exceeds 10% threshold. Check upstream event collector for retry storms.")
+    else:
+        print(f"✅ {row['layer']}: dupe rate {row['dupe_pct']}% -- within normal range")

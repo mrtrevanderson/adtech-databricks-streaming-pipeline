@@ -22,6 +22,12 @@ CREATE OR REFRESH STREAMING TABLE silver_ecommerce_events
   COMMENT "Cleaned and consent-validated e-commerce events.
            Watermark set to 15 minutes to tolerate late mobile SDK events.
            Rows failing quality checks are dropped and logged."
+  -- WARN constraint: flags duplicate event_ids without dropping the row.
+  -- Dupes are filtered downstream by QUALIFY ROW_NUMBER() = 1, but surfacing
+  -- them here makes the dupe rate visible in the Lakeflow pipeline UI.
+  -- High dupe rates (>10%) may indicate an upstream retry storm or SDK bug.
+  CONSTRAINT duplicate_event_id_warning
+    EXPECT (event_id IS NOT NULL) ON VIOLATION WARN
   TBLPROPERTIES (
     "quality"                    = "silver",
     "delta.enableChangeDataFeed" = "true"
