@@ -21,11 +21,14 @@
 -- GOLD 1: Post-Transaction Ad Triggers
 -- One record per purchase event, ready for the ad serving engine to consume.
 -- -----------------------------------------------------------------------------
-CREATE OR REFRESH MATERIALIZED VIEW gold_post_transaction_triggers
+-- Streaming Table (not Materialized View) so offer recommendations are
+-- available within seconds of purchase -- required for real-time ad serving.
+-- No aggregations here, just a CASE-based SELECT, so streaming append mode works fine.
+CREATE OR REFRESH STREAMING TABLE gold_post_transaction_triggers
   COMMENT "One record per completed purchase, enriched with personalized offer recommendations.
-           Offer is selected based on purchase context + user interest affinity.
-           After a user completes a purchase, this record tells the ad engine:
-           who they are, what they bought, and what offer to serve next."
+           Implemented as a Streaming Table for low-latency ad serving -- offers are
+           generated within seconds of purchase by reading directly from the
+           silver_enriched_purchases stream."
   TBLPROPERTIES (
     "quality"                           = "gold",
     "pipelines.autoOptimize.zOrderCols" = "user_id,event_date"
@@ -187,7 +190,7 @@ SELECT
 
     CURRENT_TIMESTAMP()                         AS targeting_generated_at
 
-FROM LIVE.silver_enriched_purchases AS p;
+FROM STREAM(LIVE.silver_enriched_purchases) AS p;
 
 
 -- -----------------------------------------------------------------------------
