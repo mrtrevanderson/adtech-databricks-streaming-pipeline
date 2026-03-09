@@ -169,9 +169,11 @@ Open `notebooks/02_validation_monitoring.py` and run each cell to verify:
 
 ## Key Design Decisions
 
-**Why is Bronze Python and Silver/Gold SQL?**
-Auto Loader's `cloudFiles` format is only available via the Python/Scala DataFrame API.
-Everything else is expressed in SQL to keep transformations readable and easy to maintain.
+**Why is the entire pipeline in SQL?**
+All three layers (Bronze, Silver, Gold) use Lakeflow SQL. Bronze uses the `read_files()`
+function with `STREAM` keyword -- the SQL equivalent of Auto Loader, no Python required.
+This keeps the entire pipeline in a single language, making it easier to read, maintain,
+and hand off to analysts or data engineers who may not be comfortable with PySpark.
 
 **Why a stream-static join instead of a stream-stream join?**
 `silver_user_profiles` is built via AUTO CDC (`APPLY CHANGES INTO`) which writes MERGE
