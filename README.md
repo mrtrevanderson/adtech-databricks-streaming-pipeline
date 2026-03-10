@@ -240,7 +240,7 @@ VACUUM  ius_unity_prod.sandbox.bronze_ecommerce_events;
 The real state burden is in Silver — the 15-minute watermark on `silver_ecommerce_events`
 buffers unmatched events in executor memory, and the stream-static join reads the full
 `silver_user_profiles` snapshot every microbatch. At 200 synthetic users this is trivial.
-At Fluent's scale of 200M profiles, the static side would need to be partitioned by
+At ACME's scale of 200M profiles, the static side would need to be partitioned by
 `user_id` hash or moved to a feature store to avoid full table scans per microbatch.
 
 **Why session windows instead of tumbling time windows?**
@@ -332,7 +332,7 @@ estimates, potentially allowing a tighter watermark and smaller cluster over tim
 
 ### Scale Considerations (200M Profiles)
 
-At Fluent's scale the stream-static join against `silver_user_profiles` becomes the
+At ACME's scale the stream-static join against `silver_user_profiles` becomes the
 dominant cost driver. Every microbatch reads the full profile snapshot — at 200M rows
 this is a full table scan per batch. Mitigations:
 
